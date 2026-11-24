@@ -31,7 +31,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -45,8 +44,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentType
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -249,7 +246,6 @@ fun ApexBidApp(db: AppDatabase) {
     }
 
     if (isTabletLandscape) {
-        // Autoajuste Tablet Horizontal: Barra de navegación lateral izquierda (NavigationRail)
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Row(Modifier.fillMaxSize()) {
                 NavigationRail(
@@ -279,7 +275,6 @@ fun ApexBidApp(db: AppDatabase) {
             }
         }
     } else {
-        // Teléfono vertical: Barra inferior clásica
         Scaffold(
             bottomBar = {
                 NavigationBar {
@@ -512,11 +507,9 @@ fun BusinessOverviewScreen(quotes: List<QuoteEntity>, isTablet: Boolean) {
     val totalPending = quotes.filter { it.status == "Pendiente" }.sumOf { it.total }
     val avgTicket = if (quotes.isNotEmpty()) quotes.sumOf { it.total } / quotes.size else 0.0
 
-    // Evolución últimos 6 meses
     val monthlyData = remember(quotes) {
-        val cal = Calendar.getInstance()
         val fmt = SimpleDateFormat("MMM", Locale.US)
-        val result = mutableListOf<Triple<String, Double, Double>>() // Mes, Cotizado Total, Facturado
+        val result = mutableListOf<Triple<String, Double, Double>>()
         for (i in 5 downTo 0) {
             val c = Calendar.getInstance().apply {
                 set(Calendar.DAY_OF_MONTH, 1)
@@ -537,7 +530,6 @@ fun BusinessOverviewScreen(quotes: List<QuoteEntity>, isTablet: Boolean) {
         result
     }
 
-    // Distribución por categoría eléctrica
     val categoryStats = remember(quotes) {
         val categories = listOf(
             "Receptáculos e interruptores",
@@ -595,7 +587,6 @@ fun BusinessOverviewScreen(quotes: List<QuoteEntity>, isTablet: Boolean) {
 
     val chartsSection: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Gráfico 1: Evolución mensual (Barras comparativas)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Evolución Mensual (Últimos 6 meses)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -648,7 +639,6 @@ fun BusinessOverviewScreen(quotes: List<QuoteEntity>, isTablet: Boolean) {
                 }
             }
 
-            // Gráfico 2: Comportamiento por categoría de servicio eléctrico
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Ingresos por Especialidad Eléctrica", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -709,7 +699,7 @@ fun ClientsScreen(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Nombre del cliente") },
-                modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.PersonFullName },
+                modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                 singleLine = true
             )
@@ -717,7 +707,7 @@ fun ClientsScreen(
                 value = phone,
                 onValueChange = { phone = it },
                 label = { Text("Teléfono (para SMS)") },
-                modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.PhoneNumber },
+                modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 singleLine = true
             )
@@ -725,7 +715,7 @@ fun ClientsScreen(
                 value = email,
                 onValueChange = { email = it },
                 label = { Text("Email (para envío PDF)") },
-                modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.EmailAddress },
+                modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 singleLine = true
             )
@@ -734,7 +724,7 @@ fun ClientsScreen(
                     value = address,
                     onValueChange = { address = it },
                     label = { Text("Dirección exacta del trabajo") },
-                    modifier = Modifier.weight(1f).semantics { contentType = ContentType.PostalAddress },
+                    modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                     singleLine = true
                 )
@@ -971,7 +961,7 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
                     value = clientAddress,
                     onValueChange = { clientAddress = it },
                     label = { Text("Dirección del trabajo / Job address") },
-                    modifier = Modifier.weight(1f).semantics { contentType = ContentType.PostalAddress },
+                    modifier = Modifier.weight(1f),
                     singleLine = true
                 )
                 FilledTonalIconButton(
