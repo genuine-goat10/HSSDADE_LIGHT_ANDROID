@@ -1495,6 +1495,7 @@ fun SettingsScreen(
         }
     }
 }
+
 HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
         // Tarjeta "Acerca de ApexBid" (Versión dinámica y detalles)
