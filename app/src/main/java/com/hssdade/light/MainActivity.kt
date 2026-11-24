@@ -1495,3 +1495,44 @@ fun SettingsScreen(
         }
     }
 }
+HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+        // Tarjeta "Acerca de ApexBid" (Versión dinámica y detalles)
+        val versionLabel = remember {
+            try {
+                val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                val code = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    pInfo.longVersionCode
+                } else {
+                    @Suppress("DEPRECATION")
+                    pInfo.versionCode.toLong()
+                }
+                "v${pInfo.versionName} (Build $code)"
+            } catch (e: Exception) {
+                "v0.7.0"
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            )
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ApexBidLogo(size = 28.dp)
+                    Column {
+                        Text("ApexBid · Electrical Estimates & Invoices", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("Versión instalada: $versionLabel", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("• Base de datos local Room v3 (offline)", style = MaterialTheme.typography.bodySmall)
+                Text("• Exportación PDF bilingüe con firma digital y logotipo", style = MaterialTheme.typography.bodySmall)
+                Text("• Diseño adaptativo para teléfono y tablet horizontal", style = MaterialTheme.typography.bodySmall)
+            }
+        }
