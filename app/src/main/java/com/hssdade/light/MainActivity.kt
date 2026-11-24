@@ -93,23 +93,32 @@ fun ApexBidLogo(size: Dp = 40.dp) {
             color = Color(0xFF145A72),
             cornerRadius = CornerRadius(w * 0.22f, h * 0.22f)
         )
-        val apexPath = Path().apply {
-            moveTo(w * 0.22f, h * 0.80f)
-            lineTo(w * 0.50f, h * 0.20f)
-            lineTo(w * 0.78f, h * 0.80f)
-        }
-        drawPath(
-            path = apexPath,
-            color = Color(0xFF2D8A78),
-            style = Stroke(width = w * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        // Hoja de cálculo / cotización blanca
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset(w * 0.24f, h * 0.18f),
+            size = Size(w * 0.44f, h * 0.62f),
+            cornerRadius = CornerRadius(w * 0.06f, h * 0.06f)
         )
+        // Líneas de partidas
+        drawRect(Color(0xFF145A72), Offset(w * 0.31f, h * 0.30f), Size(w * 0.24f, h * 0.05f))
+        drawRect(Color(0xFF7BA4B3), Offset(w * 0.31f, h * 0.41f), Size(w * 0.30f, h * 0.045f))
+        drawRect(Color(0xFF7BA4B3), Offset(w * 0.31f, h * 0.51f), Size(w * 0.20f, h * 0.045f))
+        drawRect(Color(0xFF2D8A78), Offset(w * 0.31f, h * 0.63f), Size(w * 0.16f, h * 0.055f))
+
+        // Sello circular verde con rayo dorado
+        val cx = w * 0.68f
+        val cy = h * 0.68f
+        val r = w * 0.20f
+        drawCircle(color = Color(0xFF2D8A78), radius = r, center = Offset(cx, cy))
+
         val bolt = Path().apply {
-            moveTo(w * 0.53f, h * 0.34f)
-            lineTo(w * 0.39f, h * 0.57f)
-            lineTo(w * 0.50f, h * 0.57f)
-            lineTo(w * 0.45f, h * 0.78f)
-            lineTo(w * 0.62f, h * 0.52f)
-            lineTo(w * 0.50f, h * 0.52f)
+            moveTo(cx + r * 0.18f, cy - r * 0.58f)
+            lineTo(cx - r * 0.42f, cy + r * 0.08f)
+            lineTo(cx - r * 0.02f, cy + r * 0.08f)
+            lineTo(cx - r * 0.20f, cy + r * 0.62f)
+            lineTo(cx + r * 0.45f, cy - r * 0.08f)
+            lineTo(cx + r * 0.04f, cy - r * 0.08f)
             close()
         }
         drawPath(path = bolt, color = Color(0xFFEBB328))
