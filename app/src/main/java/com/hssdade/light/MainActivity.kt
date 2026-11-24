@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -30,7 +31,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -39,8 +43,15 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,6 +66,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -69,15 +81,50 @@ class MainActivity : ComponentActivity() {
                     secondary = Color(0xFF2D8A78)
                 )
             ) {
-                HssdadeApp(db)
+                ApexBidApp(db)
             }
         }
     }
 }
 
 @Composable
-fun HssdadeApp(db: AppDatabase) {
+fun ApexBidLogo(size: Dp = 40.dp) {
+    Canvas(modifier = Modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        drawRoundRect(
+            color = Color(0xFF145A72),
+            cornerRadius = CornerRadius(w * 0.22f, h * 0.22f)
+        )
+        val apexPath = Path().apply {
+            moveTo(w * 0.22f, h * 0.80f)
+            lineTo(w * 0.50f, h * 0.20f)
+            lineTo(w * 0.78f, h * 0.80f)
+        }
+        drawPath(
+            path = apexPath,
+            color = Color(0xFF2D8A78),
+            style = Stroke(width = w * 0.08f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+        val bolt = Path().apply {
+            moveTo(w * 0.53f, h * 0.34f)
+            lineTo(w * 0.39f, h * 0.57f)
+            lineTo(w * 0.50f, h * 0.57f)
+            lineTo(w * 0.45f, h * 0.78f)
+            lineTo(w * 0.62f, h * 0.52f)
+            lineTo(w * 0.50f, h * 0.52f)
+            close()
+        }
+        drawPath(path = bolt, color = Color(0xFFEBB328))
+    }
+}
+
+@Composable
+fun ApexBidApp(db: AppDatabase) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isTabletLandscape = configuration.screenWidthDp >= 600
+
     var tab by remember { mutableStateOf(0) }
     var settings by remember { mutableStateOf(EstimateSettings.load(context)) }
     val clients by db.clientDao().observeAll().collectAsStateWithLifecycle(emptyList())
@@ -86,40 +133,48 @@ fun HssdadeApp(db: AppDatabase) {
 
     val navItems = listOf(
         Triple("Inicio", Icons.Filled.Home, 0),
-        Triple("Clientes", Icons.Filled.People, 1),
-        Triple("Cotizar", Icons.Filled.Calculate, 2),
-        Triple("Historial", Icons.Filled.History, 3),
-        Triple("Ajustes", Icons.Filled.Settings, 4)
+        Triple("Business", Icons.Filled.BarChart, 1),
+        Triple("Clientes", Icons.Filled.People, 2),
+        Triple("Cotizar", Icons.Filled.Calculate, 3),
+        Triple("Historial", Icons.Filled.History, 4),
+        Triple("Ajustes", Icons.Filled.Settings, 5)
     )
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                navItems.forEach { (label, icon, index) ->
-                    NavigationBarItem(
-                        selected = tab == index,
-                        onClick = { tab = index },
-                        icon = { Icon(icon, contentDescription = label) },
-                        label = { Text(label, maxLines = 1) }
+    val mainContent: @Composable (Modifier) -> Unit = { contentModifier ->
+        Column(
+            contentModifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (!isTabletLandscape) {
+                    ApexBidLogo(size = 38.dp)
+                }
+                Column {
+                    Text(
+                        text = settings.brandName.ifBlank { "ApexBid" },
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Electrical Estimates & Invoices · Servicios Eléctricos",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-        }
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-        ) {
-            Text("HSSDADE-LIGHT.CORP", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Text("Cotizaciones eléctricas residenciales", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
 
             when (tab) {
-                0 -> HomeScreen(clients.size, quotes) { tab = 2 }
-                1 -> ClientsScreen(
+                0 -> HomeScreen(clients.size, quotes, isTabletLandscape) { tab = 3 }
+                1 -> BusinessOverviewScreen(quotes, isTabletLandscape)
+                2 -> ClientsScreen(
                     clients = clients,
+                    isTablet = isTabletLandscape,
                     onSave = { name, phone, email, address ->
                         scope.launch {
                             db.clientDao().insert(ClientEntity(name = name, phone = phone, email = email, address = address))
@@ -129,33 +184,39 @@ fun HssdadeApp(db: AppDatabase) {
                         scope.launch { db.clientDao().delete(client) }
                     }
                 )
-                2 -> QuoteScreen(clients, settings) { q ->
+                3 -> QuoteScreen(clients, settings, isTabletLandscape) { q ->
                     scope.launch {
                         db.quoteDao().insert(q)
                         Toast.makeText(context, "Cotización guardada", Toast.LENGTH_SHORT).show()
-                        tab = 3
+                        tab = 4
                     }
                 }
-                3 -> HistoryScreen(
+                4 -> HistoryScreen(
                     quotes = quotes,
                     onUpdateQuote = { updated ->
                         scope.launch { db.quoteDao().update(updated) }
                     },
                     onExportPdf = { q, mode ->
                         try {
-                            val generated = QuotePdf.create(context, q, settings.companyLicense, settings.companyPhone)
+                            val generated = QuotePdf.create(
+                                context = context,
+                                quote = q,
+                                companyLicense = settings.companyLicense,
+                                companyPhone = settings.companyPhone,
+                                brandName = settings.brandName
+                            )
                             Toast.makeText(context, "PDF guardado: ${generated.fileName}", Toast.LENGTH_SHORT).show()
                             when (mode) {
-                                "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q)
-                                "email" -> sendQuoteByEmail(context, q, generated.uri)
-                                "sms" -> sendQuoteBySms(context, q)
+                                "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q, settings.brandName)
+                                "email" -> sendQuoteByEmail(context, q, generated.uri, settings.brandName)
+                                "sms" -> sendQuoteBySms(context, q, settings.brandName)
                             }
                         } catch (e: Exception) {
                             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         }
                     }
                 )
-                4 -> SettingsScreen(
+                5 -> SettingsScreen(
                     settings = settings,
                     onSave = { updated ->
                         settings = updated
@@ -186,28 +247,99 @@ fun HssdadeApp(db: AppDatabase) {
             }
         }
     }
+
+    if (isTabletLandscape) {
+        // Autoajuste Tablet Horizontal: Barra de navegación lateral izquierda (NavigationRail)
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Row(Modifier.fillMaxSize()) {
+                NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    header = {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        ) {
+                            ApexBidLogo(size = 42.dp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("ApexBid", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                ) {
+                    navItems.forEach { (label, icon, index) ->
+                        NavigationRailItem(
+                            selected = tab == index,
+                            onClick = { tab = index },
+                            icon = { Icon(icon, contentDescription = label) },
+                            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        )
+                    }
+                }
+                VerticalDivider()
+                mainContent(Modifier.weight(1f))
+            }
+        }
+    } else {
+        // Teléfono vertical: Barra inferior clásica
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    navItems.forEach { (label, icon, index) ->
+                        NavigationBarItem(
+                            selected = tab == index,
+                            onClick = { tab = index },
+                            icon = { Icon(icon, contentDescription = label) },
+                            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        )
+                    }
+                }
+            }
+        ) { padding ->
+            mainContent(Modifier.padding(padding))
+        }
+    }
 }
 
-private fun sharePdfGeneral(context: Context, uri: Uri, quote: QuoteEntity) {
+private fun openInGoogleMaps(context: Context, address: String) {
+    val clean = address.trim()
+    if (clean.isEmpty()) {
+        Toast.makeText(context, "Escribe una dirección primero", Toast.LENGTH_SHORT).show()
+        return
+    }
+    val mapUri = Uri.parse("geo:0,0?q=${Uri.encode(clean)}")
+    val mapIntent = Intent(Intent.ACTION_VIEW, mapUri).apply {
+        setPackage("com.google.android.apps.maps")
+    }
+    try {
+        context.startActivity(mapIntent)
+    } catch (e: Exception) {
+        val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encode(clean)}")
+        context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
+    }
+}
+
+private fun sharePdfGeneral(context: Context, uri: Uri, quote: QuoteEntity, brandName: String) {
+    val brand = brandName.ifBlank { "ApexBid" }
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "application/pdf"
         putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_SUBJECT, "Cotización / Quotation - HSSDADE-LIGHT.CORP (${quote.clientName})")
+        putExtra(Intent.EXTRA_SUBJECT, "Cotización / Estimate - $brand (${quote.clientName})")
         if (quote.clientEmail.isNotBlank()) {
             putExtra(Intent.EXTRA_EMAIL, arrayOf(quote.clientEmail))
         }
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "Compartir cotización PDF / Share PDF"))
+    context.startActivity(Intent.createChooser(intent, "Compartir PDF / Share PDF"))
 }
 
-private fun sendQuoteByEmail(context: Context, quote: QuoteEntity, pdfUri: Uri?) {
+private fun sendQuoteByEmail(context: Context, quote: QuoteEntity, pdfUri: Uri?, brandName: String) {
+    val brand = brandName.ifBlank { "ApexBid" }
     val money = NumberFormat.getCurrencyInstance(Locale.US).format(quote.total)
+    val docType = if (quote.status == "Facturada") "Factura / Invoice" else "Cotización / Estimate"
     val body = """
         Estimado/a ${quote.clientName} / Dear ${quote.clientName},
         
-        Adjuntamos su cotización eléctrica de HSSDADE-LIGHT.CORP por un total de $money.
-        Please find attached your electrical quotation from HSSDADE-LIGHT.CORP for a total of $money.
+        Adjuntamos su $docType eléctrica de $brand por un total de $money.
+        Please find attached your electrical document from $brand for a total of $money.
         
         Servicios / Services:
         ${quote.serviceName}
@@ -220,7 +352,7 @@ private fun sendQuoteByEmail(context: Context, quote: QuoteEntity, pdfUri: Uri?)
         if (quote.clientEmail.isNotBlank()) {
             putExtra(Intent.EXTRA_EMAIL, arrayOf(quote.clientEmail))
         }
-        putExtra(Intent.EXTRA_SUBJECT, "Cotización Eléctrica / Electrical Quote - HSSDADE-LIGHT.CORP")
+        putExtra(Intent.EXTRA_SUBJECT, "$docType Eléctrica - $brand")
         putExtra(Intent.EXTRA_TEXT, body)
         if (pdfUri != null) {
             putExtra(Intent.EXTRA_STREAM, pdfUri)
@@ -230,9 +362,10 @@ private fun sendQuoteByEmail(context: Context, quote: QuoteEntity, pdfUri: Uri?)
     context.startActivity(Intent.createChooser(intent, "Enviar por correo / Send email"))
 }
 
-private fun sendQuoteBySms(context: Context, quote: QuoteEntity) {
+private fun sendQuoteBySms(context: Context, quote: QuoteEntity, brandName: String) {
+    val brand = brandName.ifBlank { "ApexBid" }
     val money = NumberFormat.getCurrencyInstance(Locale.US).format(quote.total)
-    val message = "Hola ${quote.clientName}, le saludamos de HSSDADE-LIGHT.CORP. Su cotización eléctrica (${quote.serviceName.take(60)}) es por $money. Estado: ${quote.status}."
+    val message = "Hola ${quote.clientName}, le saludamos de $brand. Su cotización eléctrica (${quote.serviceName.take(55)}) es por $money. Estado: ${quote.status}."
     val smsUri = Uri.parse("smsto:${Uri.encode(quote.clientPhone)}")
     val intent = Intent(Intent.ACTION_SENDTO, smsUri).apply {
         putExtra("sms_body", message)
@@ -249,7 +382,7 @@ private suspend fun exportDatabaseJson(context: Context, db: AppDatabase, uri: U
     val quotes = db.quoteDao().getAllOnce()
 
     val root = JSONObject()
-    root.put("app", "HSSDADE-LIGHT.CORP")
+    root.put("app", "ApexBid")
     root.put("exportedAt", System.currentTimeMillis())
 
     val clientsArr = JSONArray()
@@ -264,7 +397,8 @@ private suspend fun exportDatabaseJson(context: Context, db: AppDatabase, uri: U
     quotes.forEach { q ->
         quotesArr.put(JSONObject().apply {
             put("clientName", q.clientName); put("clientPhone", q.clientPhone); put("clientEmail", q.clientEmail)
-            put("serviceName", q.serviceName); put("descriptionEs", q.descriptionEs); put("descriptionEn", q.descriptionEn)
+            put("clientAddress", q.clientAddress); put("serviceName", q.serviceName)
+            put("descriptionEs", q.descriptionEs); put("descriptionEn", q.descriptionEn)
             put("observations", q.observations); put("quantity", q.quantity); put("total", q.total)
             put("status", q.status); put("signatureData", q.signatureData); put("signedAt", q.signedAt)
             put("createdAt", q.createdAt)
@@ -305,6 +439,7 @@ private suspend fun importDatabaseJson(context: Context, db: AppDatabase, uri: U
                 clientName = obj.optString("clientName"),
                 clientPhone = obj.optString("clientPhone"),
                 clientEmail = obj.optString("clientEmail"),
+                clientAddress = obj.optString("clientAddress"),
                 serviceName = obj.optString("serviceName"),
                 descriptionEs = obj.optString("descriptionEs"),
                 descriptionEn = obj.optString("descriptionEn"),
@@ -323,16 +458,21 @@ private suspend fun importDatabaseJson(context: Context, db: AppDatabase, uri: U
 }
 
 @Composable
-fun HomeScreen(clientCount: Int, quotes: List<QuoteEntity>, onNew: () -> Unit) {
+fun HomeScreen(clientCount: Int, quotes: List<QuoteEntity>, isTablet: Boolean, onNew: () -> Unit) {
+    val money = NumberFormat.getCurrencyInstance(Locale.US)
     val pending = quotes.count { it.status == "Pendiente" }
     val approved = quotes.count { it.status == "Aprobada" }
     val invoiced = quotes.count { it.status == "Facturada" }
+    val invoicedTotal = quotes.filter { it.status == "Facturada" }.sumOf { it.total }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Panel principal", style = MaterialTheme.typography.titleLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCard("Clientes", clientCount.toString(), Modifier.weight(1f))
             StatCard("Cotizaciones", quotes.size.toString(), Modifier.weight(1f))
+            if (isTablet) {
+                StatCard("Total Facturado", money.format(invoicedTotal), Modifier.weight(1.3f))
+            }
         }
         Card(Modifier.fillMaxWidth()) {
             Row(
@@ -358,18 +498,193 @@ fun HomeScreen(clientCount: Int, quotes: List<QuoteEntity>, onNew: () -> Unit) {
         Button(onClick = onNew, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Filled.Add, contentDescription = null)
             Spacer(Modifier.width(8.dp))
-            Text("Crear cotización")
+            Text("Crear cotización / New estimate")
         }
-        Text("Modo local activo. Los datos se guardan en este dispositivo.", style = MaterialTheme.typography.bodySmall)
+        Text("Modo local activo. Datos almacenados de forma segura en este dispositivo.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
 @Composable
-fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier) {
-        Column(Modifier.padding(16.dp)) {
-            Text(label)
-            Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+fun BusinessOverviewScreen(quotes: List<QuoteEntity>, isTablet: Boolean) {
+    val money = NumberFormat.getCurrencyInstance(Locale.US)
+    val totalInvoiced = quotes.filter { it.status == "Facturada" }.sumOf { it.total }
+    val totalApproved = quotes.filter { it.status == "Aprobada" }.sumOf { it.total }
+    val totalPending = quotes.filter { it.status == "Pendiente" }.sumOf { it.total }
+    val avgTicket = if (quotes.isNotEmpty()) quotes.sumOf { it.total } / quotes.size else 0.0
+
+    // Evolución últimos 6 meses
+    val monthlyData = remember(quotes) {
+        val cal = Calendar.getInstance()
+        val fmt = SimpleDateFormat("MMM", Locale.US)
+        val result = mutableListOf<Triple<String, Double, Double>>() // Mes, Cotizado Total, Facturado
+        for (i in 5 downTo 0) {
+            val c = Calendar.getInstance().apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                add(Calendar.MONTH, -i)
+            }
+            val year = c.get(Calendar.YEAR)
+            val month = c.get(Calendar.MONTH)
+            val label = fmt.format(c.time)
+
+            val inMonth = quotes.filter { q ->
+                val qc = Calendar.getInstance().apply { timeInMillis = q.createdAt }
+                qc.get(Calendar.YEAR) == year && qc.get(Calendar.MONTH) == month
+            }
+            val quotedSum = inMonth.sumOf { it.total }
+            val paidSum = inMonth.filter { it.status == "Facturada" }.sumOf { it.total }
+            result.add(Triple(label, quotedSum, paidSum))
+        }
+        result
+    }
+
+    // Distribución por categoría eléctrica
+    val categoryStats = remember(quotes) {
+        val categories = listOf(
+            "Receptáculos e interruptores",
+            "Iluminación y ventilación",
+            "Circuitos nuevos",
+            "Paneles, protección y diagnóstico"
+        )
+        categories.map { cat ->
+            val servicesInCat = ServiceCatalog.all.filter { it.category == cat }
+            val matchedTotal = quotes.filter { q ->
+                servicesInCat.any { s -> q.serviceName.contains(s.nameEs, ignoreCase = true) }
+            }.sumOf { it.total }
+            cat to matchedTotal
+        }
+    }
+
+    val kpiGrid: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Card(
+                    Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF145A72).copy(alpha = 0.12f))
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Facturado / Invoiced", style = MaterialTheme.typography.labelMedium)
+                        Text(money.format(totalInvoiced), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF145A72))
+                    }
+                }
+                Card(
+                    Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2D8A78).copy(alpha = 0.12f))
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Aprobado / Approved", style = MaterialTheme.typography.labelMedium)
+                        Text(money.format(totalApproved), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF2D8A78))
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Card(Modifier.weight(1f)) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Pendiente / Pending", style = MaterialTheme.typography.labelMedium)
+                        Text(money.format(totalPending), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Card(Modifier.weight(1f)) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Ticket Promedio", style = MaterialTheme.typography.labelMedium)
+                        Text(money.format(avgTicket), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+
+    val chartsSection: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Gráfico 1: Evolución mensual (Barras comparativas)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Evolución Mensual (Últimos 6 meses)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(Modifier.size(10.dp).background(Color(0xFF90B8C7), RoundedCornerShape(2.dp)))
+                            Text("Cotizado", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(Modifier.size(10.dp).background(Color(0xFF145A72), RoundedCornerShape(2.dp)))
+                            Text("Facturado / Pagado", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
+                    val maxVal = (monthlyData.maxOfOrNull { maxOf(it.second, it.third) } ?: 1.0).coerceAtLeast(1.0)
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                            .padding(top = 8.dp)
+                    ) {
+                        val groupWidth = size.width / monthlyData.size
+                        val barWidth = (groupWidth * 0.28f).coerceAtMost(28f)
+                        val chartH = size.height - 12f
+
+                        monthlyData.forEachIndexed { idx, (_, quoted, paid) ->
+                            val centerX = idx * groupWidth + groupWidth / 2f
+                            val qHeight = ((quoted / maxVal) * chartH).toFloat()
+                            val pHeight = ((paid / maxVal) * chartH).toFloat()
+
+                            drawRoundRect(
+                                color = Color(0xFF90B8C7),
+                                topLeft = Offset(centerX - barWidth - 2f, chartH - qHeight),
+                                size = Size(barWidth, qHeight.coerceAtLeast(4f)),
+                                cornerRadius = CornerRadius(4f, 4f)
+                            )
+                            drawRoundRect(
+                                color = Color(0xFF145A72),
+                                topLeft = Offset(centerX + 2f, chartH - pHeight),
+                                size = Size(barWidth, pHeight.coerceAtLeast(4f)),
+                                cornerRadius = CornerRadius(4f, 4f)
+                            )
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                        monthlyData.forEach { (month, _, _) ->
+                            Text(month, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+
+            // Gráfico 2: Comportamiento por categoría de servicio eléctrico
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Ingresos por Especialidad Eléctrica", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    val maxCat = (categoryStats.maxOfOrNull { it.second } ?: 1.0).coerceAtLeast(1.0)
+                    categoryStats.forEach { (catName, amount) ->
+                        val ratio = (amount / maxCat).toFloat().coerceIn(0f, 1f)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(catName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                                Text(money.format(amount), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            }
+                            LinearProgressIndicator(
+                                progress = { ratio },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp),
+                                color = Color(0xFF2D8A78),
+                                trackColor = Color(0xFFE0ECEF)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Business Overview · Resumen Financiero", style = MaterialTheme.typography.titleLarge)
+        if (isTablet) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(Modifier.weight(1f)) { kpiGrid() }
+                Box(Modifier.weight(1.3f)) { chartsSection() }
+            }
+        } else {
+            kpiGrid()
+            chartsSection()
         }
     }
 }
@@ -377,57 +692,123 @@ fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
 @Composable
 fun ClientsScreen(
     clients: List<ClientEntity>,
+    isTablet: Boolean,
     onSave: (String, String, String, String) -> Unit,
     onDelete: (ClientEntity) -> Unit
 ) {
+    val context = LocalContext.current
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
 
-    Column(Modifier.fillMaxSize()) {
-        Text("Clientes", style = MaterialTheme.typography.titleLarge)
-        OutlinedTextField(name, { name = it }, label = { Text("Nombre del cliente") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(phone, { phone = it }, label = { Text("Teléfono (para SMS)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(email, { email = it }, label = { Text("Email (para envío PDF)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(address, { address = it }, label = { Text("Dirección del trabajo") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Button(
-            onClick = {
-                if (name.isNotBlank()) {
-                    onSave(name.trim(), phone.trim(), email.trim(), address.trim())
-                    name = ""; phone = ""; email = ""; address = ""
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
-        ) { Text("Guardar cliente") }
-        Spacer(Modifier.height(12.dp))
-        Text("Clientes guardados (${clients.size})", style = MaterialTheme.typography.titleMedium)
-        LazyColumn {
-            items(clients) { c ->
-                ListItem(
-                    headlineContent = { Text(c.name, fontWeight = FontWeight.SemiBold) },
-                    supportingContent = {
-                        Text(listOf(c.phone, c.email, c.address).filter { it.isNotBlank() }.joinToString(" · "))
-                    },
-                    trailingContent = {
-                        IconButton(onClick = { onDelete(c) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Eliminar")
-                        }
-                    }
+    val formContent: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Registrar cliente", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Nombre del cliente") },
+                modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.PersonFullName },
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it },
+                label = { Text("Teléfono (para SMS)") },
+                modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.PhoneNumber },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Email (para envío PDF)") },
+                modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.EmailAddress },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                singleLine = true
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("Dirección exacta del trabajo") },
+                    modifier = Modifier.weight(1f).semantics { contentType = ContentType.PostalAddress },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                    singleLine = true
                 )
+                FilledTonalIconButton(
+                    onClick = { openInGoogleMaps(context, address) },
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    Icon(Icons.Filled.LocationOn, contentDescription = "Verificar en Google Maps")
+                }
             }
+            Button(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onSave(name.trim(), phone.trim(), email.trim(), address.trim())
+                        name = ""; phone = ""; email = ""; address = ""
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Guardar cliente") }
+        }
+    }
+
+    val listContent: @Composable () -> Unit = {
+        Column(Modifier.fillMaxSize()) {
+            Text("Clientes guardados (${clients.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            LazyColumn {
+                items(clients) { c ->
+                    ListItem(
+                        headlineContent = { Text(c.name, fontWeight = FontWeight.SemiBold) },
+                        supportingContent = {
+                            Text(listOf(c.phone, c.email, c.address).filter { it.isNotBlank() }.joinToString(" · "))
+                        },
+                        trailingContent = {
+                            Row {
+                                if (c.address.isNotBlank()) {
+                                    IconButton(onClick = { openInGoogleMaps(context, c.address) }) {
+                                        Icon(Icons.Filled.Map, contentDescription = "Abrir en Maps", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                                IconButton(onClick = { onDelete(c) }) {
+                                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar")
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (isTablet) {
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Box(Modifier.weight(1f)) { formContent() }
+            VerticalDivider()
+            Box(Modifier.weight(1.2f)) { listContent() }
+        }
+    } else {
+        Column(Modifier.fillMaxSize()) {
+            formContent()
+            Spacer(Modifier.height(12.dp))
+            listContent()
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, onSave: (QuoteEntity) -> Unit) {
+fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTablet: Boolean, onSave: (QuoteEntity) -> Unit) {
+    val context = LocalContext.current
     var client by remember { mutableStateOf("") }
     var clientPhone by remember { mutableStateOf("") }
     var clientEmail by remember { mutableStateOf("") }
+    var clientAddress by remember { mutableStateOf("") }
     var clientExpanded by remember { mutableStateOf(false) }
     val selectedIds = remember { mutableStateListOf<Int>() }
     var showCatalogSheet by remember { mutableStateOf(false) }
@@ -552,113 +933,152 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, onSave:
         }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        Text("Nueva cotización / New quotation", style = MaterialTheme.typography.titleLarge)
-        Text("Cliente / Customer", style = MaterialTheme.typography.labelLarge)
-        Box {
-            OutlinedButton(onClick = { clientExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (client.isBlank()) "Vincular cliente guardado / Link customer" else "Cliente: $client")
-            }
-            DropdownMenu(expanded = clientExpanded, onDismissRequest = { clientExpanded = false }) {
-                clients.forEach { c ->
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text(c.name, fontWeight = FontWeight.SemiBold)
-                                val sub = listOf(c.phone, c.email).filter { it.isNotBlank() }.joinToString(" · ")
-                                if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall)
+    val leftColumn: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text("Nueva cotización / New estimate", style = MaterialTheme.typography.titleLarge)
+            Box {
+                OutlinedButton(onClick = { clientExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (client.isBlank()) "Vincular cliente guardado / Link customer" else "Cliente: $client")
+                }
+                DropdownMenu(expanded = clientExpanded, onDismissRequest = { clientExpanded = false }) {
+                    clients.forEach { c ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(c.name, fontWeight = FontWeight.SemiBold)
+                                    val sub = listOf(c.phone, c.address).filter { it.isNotBlank() }.joinToString(" · ")
+                                    if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall)
+                                }
+                            },
+                            onClick = {
+                                client = c.name
+                                clientPhone = c.phone
+                                clientEmail = c.email
+                                clientAddress = c.address
+                                clientExpanded = false
                             }
-                        },
-                        onClick = {
-                            client = c.name
-                            clientPhone = c.phone
-                            clientEmail = c.email
-                            clientExpanded = false
-                        }
-                    )
+                        )
+                    }
                 }
             }
-        }
-        OutlinedTextField(client, { client = it }, label = { Text("Nombre del cliente / Customer name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(clientPhone, { clientPhone = it }, label = { Text("Teléfono / Phone") }, modifier = Modifier.weight(1f), singleLine = true)
-            OutlinedTextField(clientEmail, { clientEmail = it }, label = { Text("Email") }, modifier = Modifier.weight(1f), singleLine = true)
-        }
+            OutlinedTextField(client, { client = it }, label = { Text("Nombre del cliente / Customer name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(clientPhone, { clientPhone = it }, label = { Text("Teléfono / Phone") }, modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(clientEmail, { clientEmail = it }, label = { Text("Email") }, modifier = Modifier.weight(1f), singleLine = true)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = clientAddress,
+                    onValueChange = { clientAddress = it },
+                    label = { Text("Dirección del trabajo / Job address") },
+                    modifier = Modifier.weight(1f).semantics { contentType = ContentType.PostalAddress },
+                    singleLine = true
+                )
+                FilledTonalIconButton(
+                    onClick = { openInGoogleMaps(context, clientAddress) },
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    Icon(Icons.Filled.LocationOn, contentDescription = "Verificar dirección en Google Maps")
+                }
+            }
 
-        Text("Servicios del catálogo / Service catalog (36)", style = MaterialTheme.typography.labelLarge)
-        OutlinedButton(onClick = { showCatalogSheet = true }, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Filled.Search, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text(if (selected.isEmpty()) "Buscar y agregar servicios / Add services" else "${selected.size} servicio(s) seleccionado(s)")
-        }
+            OutlinedButton(onClick = { showCatalogSheet = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Search, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (selected.isEmpty()) "Buscar y agregar servicios (36)" else "${selected.size} servicio(s) seleccionado(s)")
+            }
 
-        if (selected.isNotEmpty()) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Servicios incluidos / Included services", style = MaterialTheme.typography.titleSmall)
-                    selected.forEach { service ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(service.nameEs)
-                                Text(service.nameEn, style = MaterialTheme.typography.bodySmall)
+            if (selected.isNotEmpty()) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Servicios incluidos / Included services", style = MaterialTheme.typography.titleSmall)
+                        selected.forEach { service ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(service.nameEs)
+                                    Text(service.nameEn, style = MaterialTheme.typography.bodySmall)
+                                }
+                                TextButton(onClick = { selectedIds.remove(service.id) }) { Text("Quitar") }
                             }
-                            TextButton(onClick = { selectedIds.remove(service.id) }) { Text("Quitar") }
                         }
                     }
                 }
             }
         }
+    }
 
-        OutlinedTextField(descEs, { descEs = it }, label = { Text("Descripción del trabajo (español)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-        OutlinedTextField(descEn, { descEn = it }, label = { Text("Work description (English)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-        OutlinedTextField(notes, { notes = it }, label = { Text("Observaciones / Job notes") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+    val rightColumn: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            OutlinedTextField(descEs, { descEs = it }, label = { Text("Descripción del trabajo (español)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+            OutlinedTextField(descEn, { descEn = it }, label = { Text("Work description (English)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+            OutlinedTextField(notes, { notes = it }, label = { Text("Observaciones / Job notes") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(qty, { qty = it }, label = { Text("Cantidad / Qty") }, modifier = Modifier.weight(1f), singleLine = true)
-            OutlinedTextField(extraMaterials, { extraMaterials = it }, label = { Text("Material extra $") }, modifier = Modifier.weight(1f), singleLine = true)
-        }
-
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Resumen / Estimate summary", style = MaterialTheme.typography.titleMedium)
-                Text("Horas estimadas / Estimated hours: ${"%.2f".format(Locale.US, laborHours * quantity)}")
-                Text("Materiales base + adicionales: ${money.format(materials * quantity)}")
-                Text("TOTAL / TOTAL", style = MaterialTheme.typography.labelLarge)
-                Text(money.format(total), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text("Cálculo interno: no se incluyen costos ni margen en el PDF del cliente.", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(qty, { qty = it }, label = { Text("Cantidad / Qty") }, modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(extraMaterials, { extraMaterials = it }, label = { Text("Material extra $") }, modifier = Modifier.weight(1f), singleLine = true)
             }
-        }
 
-        Button(
-            onClick = {
-                if (client.isNotBlank() && selected.isNotEmpty() && quantity > 0) {
-                    val names = selected.joinToString(" / ") { "${it.nameEs} | ${it.nameEn}" }
-                    onSave(
-                        QuoteEntity(
-                            clientName = client.trim(),
-                            clientPhone = clientPhone.trim(),
-                            clientEmail = clientEmail.trim(),
-                            serviceName = names,
-                            descriptionEs = descEs.ifBlank { serviceNamesEs },
-                            descriptionEn = descEn.ifBlank { serviceNamesEn },
-                            observations = notes.trim(),
-                            quantity = quantity,
-                            total = total,
-                            status = "Pendiente"
-                        )
-                    )
-                    client = ""; clientPhone = ""; clientEmail = ""; selectedIds.clear()
-                    descEs = ""; descEn = ""; notes = ""; qty = "1"; extraMaterials = "0"
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Resumen / Estimate summary", style = MaterialTheme.typography.titleMedium)
+                    Text("Horas estimadas / Estimated hours: ${"%.2f".format(Locale.US, laborHours * quantity)}")
+                    Text("Materiales base + adicionales: ${money.format(materials * quantity)}")
+                    Text("TOTAL / TOTAL", style = MaterialTheme.typography.labelLarge)
+                    Text(money.format(total), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("Cálculo interno: no se incluyen costos ni margen en el PDF del cliente.", style = MaterialTheme.typography.bodySmall)
                 }
-            },
-            enabled = client.isNotBlank() && selected.isNotEmpty() && quantity > 0,
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Guardar cotización / Save quotation") }
+            }
+
+            Button(
+                onClick = {
+                    if (client.isNotBlank() && selected.isNotEmpty() && quantity > 0) {
+                        val names = selected.joinToString(" / ") { "${it.nameEs} | ${it.nameEn}" }
+                        onSave(
+                            QuoteEntity(
+                                clientName = client.trim(),
+                                clientPhone = clientPhone.trim(),
+                                clientEmail = clientEmail.trim(),
+                                clientAddress = clientAddress.trim(),
+                                serviceName = names,
+                                descriptionEs = descEs.ifBlank { serviceNamesEs },
+                                descriptionEn = descEn.ifBlank { serviceNamesEn },
+                                observations = notes.trim(),
+                                quantity = quantity,
+                                total = total,
+                                status = "Pendiente"
+                            )
+                        )
+                        client = ""; clientPhone = ""; clientEmail = ""; clientAddress = ""; selectedIds.clear()
+                        descEs = ""; descEn = ""; notes = ""; qty = "1"; extraMaterials = "0"
+                    }
+                },
+                enabled = client.isNotBlank() && selected.isNotEmpty() && quantity > 0,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Guardar cotización / Save estimate") }
+        }
+    }
+
+    if (isTablet) {
+        Row(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(Modifier.weight(1f)) { leftColumn() }
+            VerticalDivider()
+            Box(Modifier.weight(1f)) { rightColumn() }
+        }
+    } else {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            leftColumn()
+            rightColumn()
+        }
     }
 }
 
@@ -668,6 +1088,7 @@ fun HistoryScreen(
     onUpdateQuote: (QuoteEntity) -> Unit,
     onExportPdf: (QuoteEntity, String) -> Unit
 ) {
+    val context = LocalContext.current
     val money = NumberFormat.getCurrencyInstance(Locale.US)
     val dateFmt = remember { SimpleDateFormat("MM/dd/yyyy", Locale.US) }
     var signingQuote by remember { mutableStateOf<QuoteEntity?>(null) }
@@ -689,10 +1110,10 @@ fun HistoryScreen(
     }
 
     Column {
-        Text("Historial de cotizaciones", style = MaterialTheme.typography.titleLarge)
+        Text("Historial de cotizaciones y facturas", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(8.dp))
         if (quotes.isEmpty()) {
-            Text("Todavía no hay cotizaciones guardadas.")
+            Text("Todavía no hay registros guardados.")
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(quotes, key = { it.id }) { q ->
@@ -705,11 +1126,20 @@ fun HistoryScreen(
                                     if (contact.isNotBlank()) {
                                         Text(contact, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
+                                    if (q.clientAddress.isNotBlank()) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.clickable { openInGoogleMaps(context, q.clientAddress) }
+                                        ) {
+                                            Icon(Icons.Filled.LocationOn, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                            Spacer(Modifier.width(3.dp))
+                                            Text(q.clientAddress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
                                 }
                                 Text(dateFmt.format(Date(q.createdAt)), style = MaterialTheme.typography.bodySmall)
                             }
 
-                            // Selector de estado: Pendiente / Aprobada / Facturada
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 listOf("Pendiente", "Aprobada", "Facturada").forEach { st ->
                                     FilterChip(
@@ -734,7 +1164,6 @@ fun HistoryScreen(
                                 Text(q.observations, style = MaterialTheme.typography.bodySmall)
                             }
 
-                            // Acciones vinculadas: SMS, Correo y Compartir PDF
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(
                                     onClick = { onExportPdf(q, "sms") },
@@ -864,7 +1293,8 @@ data class EstimateSettings(
     val minimumVisit: Double = 125.0,
     val applyMinimumVisit: Boolean = false,
     val companyLicense: String = "",
-    val companyPhone: String = ""
+    val companyPhone: String = "",
+    val brandName: String = "ApexBid"
 ) {
     val hourlyOperatingCost: Double
         get() = (electricianHourly + helperHourly) * (1.0 + reservePercent / 100.0) + overheadHourly
@@ -880,6 +1310,7 @@ data class EstimateSettings(
             .putBoolean("apply_minimum", applyMinimumVisit)
             .putString("company_license", companyLicense)
             .putString("company_phone", companyPhone)
+            .putString("brand_name", brandName)
             .apply()
     }
 
@@ -896,7 +1327,8 @@ data class EstimateSettings(
                 minimumVisit = number("minimum", 125.0),
                 applyMinimumVisit = p.getBoolean("apply_minimum", false),
                 companyLicense = p.getString("company_license", "") ?: "",
-                companyPhone = p.getString("company_phone", "") ?: ""
+                companyPhone = p.getString("company_phone", "") ?: "",
+                brandName = p.getString("brand_name", "ApexBid") ?: "ApexBid"
             )
         }
     }
@@ -919,6 +1351,7 @@ fun SettingsScreen(
     var applyMin by remember(settings) { mutableStateOf(settings.applyMinimumVisit) }
     var license by remember(settings) { mutableStateOf(settings.companyLicense) }
     var compPhone by remember(settings) { mutableStateOf(settings.companyPhone) }
+    var brandName by remember(settings) { mutableStateOf(settings.brandName) }
 
     val logoFile = remember { File(context.filesDir, "company_logo.png") }
     var logoVersion by remember { mutableStateOf(0) }
@@ -936,7 +1369,7 @@ fun SettingsScreen(
                             bmp.compress(Bitmap.CompressFormat.PNG, 95, out)
                         }
                         logoVersion++
-                        Toast.makeText(context, "Logo actualizado para el PDF", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Logo personalizado actualizado", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
@@ -967,32 +1400,35 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        Text("Identidad de empresa y Logo (PDF)", style = MaterialTheme.typography.titleLarge)
+        Text("Identidad de Marca y Logo (PDF)", style = MaterialTheme.typography.titleLarge)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (currentLogoBitmap != null) {
-                        Image(
-                            bitmap = currentLogoBitmap,
-                            contentDescription = "Logo empresa",
-                            modifier = Modifier.size(56.dp)
-                        )
+                        Image(bitmap = currentLogoBitmap, contentDescription = "Logo empresa", modifier = Modifier.size(56.dp))
+                    } else {
+                        ApexBidLogo(size = 56.dp)
                     }
                     Column(Modifier.weight(1f)) {
-                        Text(if (currentLogoBitmap != null) "Logo activo en encabezado PDF" else "Sin logo cargado", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (currentLogoBitmap != null) "Logo personalizado activo" else "Logo vectorial ApexBid activo",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { logoLauncher.launch("image/*") }) {
-                                Text("Elegir logo")
+                                Text("Cambiar imagen")
                             }
                             if (currentLogoBitmap != null) {
                                 TextButton(onClick = {
                                     logoFile.delete()
                                     logoVersion++
-                                }) { Text("Quitar") }
+                                }) { Text("Usar ApexBid") }
                             }
                         }
                     }
                 }
+                OutlinedTextField(brandName, { brandName = it }, label = { Text("Nombre comercial en app y PDF") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 OutlinedTextField(license, { license = it }, label = { Text("Licencia eléctrica (opcional en PDF)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 OutlinedTextField(compPhone, { compPhone = it }, label = { Text("Teléfono de empresa (opcional en PDF)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             }
@@ -1030,7 +1466,7 @@ fun SettingsScreen(
         Button(
             onClick = {
                 if (e >= 0 && h >= 0 && r >= 0 && o >= 0 && m in 0.0..90.0 && min >= 0) {
-                    onSave(EstimateSettings(e, h, r, o, m, min, applyMin, license.trim(), compPhone.trim()))
+                    onSave(EstimateSettings(e, h, r, o, m, min, applyMin, license.trim(), compPhone.trim(), brandName.trim().ifBlank { "ApexBid" }))
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -1041,7 +1477,7 @@ fun SettingsScreen(
         Text("Respaldo de datos locales", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                onClick = { exportLauncher.launch("HSSDADE_Backup_${System.currentTimeMillis()}.json") },
+                onClick = { exportLauncher.launch("ApexBid_Backup_${System.currentTimeMillis()}.json") },
                 modifier = Modifier.weight(1f)
             ) { Text("Exportar JSON") }
             OutlinedButton(
