@@ -498,6 +498,15 @@ fun HomeScreen(clientCount: Int, quotes: List<QuoteEntity>, isTablet: Boolean, o
         Text("Modo local activo. Datos almacenados de forma segura en este dispositivo.", style = MaterialTheme.typography.bodySmall)
     }
 }
+@Composable
+fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
+    Card(modifier) {
+        Column(Modifier.padding(16.dp)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        }
+    }
+}
 
 @Composable
 fun BusinessOverviewScreen(quotes: List<QuoteEntity>, isTablet: Boolean) {
