@@ -195,30 +195,37 @@ object QuotePdf {
         val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = navy; style = Paint.Style.FILL }
         canvas.drawRoundRect(RectF(left, top, left + size, top + size), 10f, 10f, bgPaint)
 
-        // Vértice "A" de Apex
-        val apexPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = teal
-            style = Paint.Style.STROKE
-            strokeWidth = 3.2f
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-        val aPath = Path().apply {
-            moveTo(left + size * 0.22f, top + size * 0.80f)
-            lineTo(left + size * 0.50f, top + size * 0.20f)
-            lineTo(left + size * 0.78f, top + size * 0.80f)
-        }
-        canvas.drawPath(aPath, apexPaint)
+        // Hoja blanca de presupuesto
+        val sheetPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE; style = Paint.Style.FILL }
+        canvas.drawRoundRect(
+            RectF(left + size * 0.24f, top + size * 0.18f, left + size * 0.68f, top + size * 0.80f),
+            3f, 3f, sheetPaint
+        )
 
-        // Rayo eléctrico central
+        // Líneas de partidas y total
+        val lineNavy = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = navy; style = Paint.Style.FILL }
+        val lineMuted = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(123, 164, 179); style = Paint.Style.FILL }
+        val lineTeal = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = teal; style = Paint.Style.FILL }
+
+        canvas.drawRect(left + size * 0.31f, top + size * 0.30f, left + size * 0.55f, top + size * 0.35f, lineNavy)
+        canvas.drawRect(left + size * 0.31f, top + size * 0.41f, left + size * 0.61f, top + size * 0.455f, lineMuted)
+        canvas.drawRect(left + size * 0.31f, top + size * 0.51f, left + size * 0.51f, top + size * 0.555f, lineMuted)
+        canvas.drawRect(left + size * 0.31f, top + size * 0.63f, left + size * 0.47f, top + size * 0.685f, lineTeal)
+
+        // Sello circular verde con rayo dorado
+        val cx = left + size * 0.68f
+        val cy = top + size * 0.68f
+        val r = size * 0.20f
+        canvas.drawCircle(cx, cy, r, lineTeal)
+
         val boltPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = gold; style = Paint.Style.FILL }
         val bolt = Path().apply {
-            moveTo(left + size * 0.53f, top + size * 0.34f)
-            lineTo(left + size * 0.39f, top + size * 0.57f)
-            lineTo(left + size * 0.50f, top + size * 0.57f)
-            lineTo(left + size * 0.45f, top + size * 0.78f)
-            lineTo(left + size * 0.62f, top + size * 0.52f)
-            lineTo(left + size * 0.50f, top + size * 0.52f)
+            moveTo(cx + r * 0.18f, cy - r * 0.58f)
+            lineTo(cx - r * 0.42f, cy + r * 0.08f)
+            lineTo(cx - r * 0.02f, cy + r * 0.08f)
+            lineTo(cx - r * 0.20f, cy + r * 0.62f)
+            lineTo(cx + r * 0.45f, cy - r * 0.08f)
+            lineTo(cx + r * 0.04f, cy - r * 0.08f)
             close()
         }
         canvas.drawPath(bolt, boltPaint)
