@@ -21,6 +21,7 @@ data class QuoteEntity(
     val clientName: String,
     val clientPhone: String = "",
     val clientEmail: String = "",
+    val clientAddress: String = "",
     val serviceName: String,
     val descriptionEs: String,
     val descriptionEn: String,
@@ -64,7 +65,7 @@ interface QuoteDao {
     suspend fun update(quote: QuoteEntity)
 }
 
-@Database(entities = [ClientEntity::class, QuoteEntity::class], version = 2, exportSchema = false)
+@Database(entities = [ClientEntity::class, QuoteEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun clientDao(): ClientDao
     abstract fun quoteDao(): QuoteDao
@@ -83,6 +84,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE quotes ADD COLUMN clientAddress TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -90,7 +97,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "hssdade_local.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { INSTANCE = it }
