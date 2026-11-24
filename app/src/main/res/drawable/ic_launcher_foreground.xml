@@ -1,0 +1,42 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Hoja de presupuesto / cálculo blanca con esquina superior doblada -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,27 H60 L71,38 V77 C71,79.2 69.2,81 67,81 H34 C31.8,81 30,79.2 30,77 V31 C30,28.8 31.8,27 34,27 Z" />
+
+    <!-- Esquina doblada del documento -->
+    <path
+        android:fillColor="#CBE0E6"
+        android:pathData="M60,27 V36 C60,37.1 60.9,38 62,38 H71 Z" />
+
+    <!-- Líneas de partidas / hoja de cálculo -->
+    <path
+        android:fillColor="#145A72"
+        android:pathData="M37,43 H56 V46.5 H37 Z" />
+    <path
+        android:fillColor="#7BA4B3"
+        android:pathData="M37,51.5 H63 V54.5 H37 Z" />
+    <path
+        android:fillColor="#7BA4B3"
+        android:pathData="M37,59.5 H53 V62.5 H37 Z" />
+
+    <!-- Fila inferior resaltada (Total del estimado) -->
+    <path
+        android:fillColor="#2D8A78"
+        android:pathData="M37,68.5 H49 V72.5 H37 Z" />
+
+    <!-- Sello circular eléctrico en la esquina inferior derecha -->
+    <path
+        android:fillColor="#2D8A78"
+        android:pathData="M67,56 A14,14 0 1,0 67,84 A14,14 0 1,0 67,56 Z" />
+
+    <!-- Rayo eléctrico dorado dentro del sello -->
+    <path
+        android:fillColor="#EBB328"
+        android:pathData="M68.8,61.5 L61.5,71.2 H66.8 L64.5,79.5 L72.8,69.2 H67.3 Z" />
+</vector>
