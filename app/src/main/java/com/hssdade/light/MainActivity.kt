@@ -2,6 +2,8 @@ package com.hssdade.light
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -9,11 +11,18 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -21,9 +30,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hssdade.light.data.*
@@ -33,6 +51,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -97,7 +117,7 @@ fun HssdadeApp(db: AppDatabase) {
             Spacer(Modifier.height(14.dp))
 
             when (tab) {
-                0 -> HomeScreen(clients.size, quotes.size) { tab = 2 }
+                0 -> HomeScreen(clients.size, quotes) { tab = 2 }
                 1 -> ClientsScreen(
                     clients = clients,
                     onSave = { name, phone, email, address ->
@@ -118,15 +138,20 @@ fun HssdadeApp(db: AppDatabase) {
                 }
                 3 -> HistoryScreen(
                     quotes = quotes,
-                    onExport = { q, shareAfter ->
+                    onUpdateQuote = { updated ->
+                        scope.launch { db.quoteDao().update(updated) }
+                    },
+                    onExportPdf = { q, mode ->
                         try {
-                            val generated = QuotePdf.create(context, q)
-                            Toast.makeText(context, "PDF guardado en Descargas: ${generated.fileName}", Toast.LENGTH_LONG).show()
-                            if (shareAfter && generated.uri != null) {
-                                sharePdf(context, generated.uri, q.clientName)
+                            val generated = QuotePdf.create(context, q, settings.companyLicense, settings.companyPhone)
+                            Toast.makeText(context, "PDF guardado: ${generated.fileName}", Toast.LENGTH_SHORT).show()
+                            when (mode) {
+                                "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q)
+                                "email" -> sendQuoteByEmail(context, q, generated.uri)
+                                "sms" -> sendQuoteBySms(context, q)
                             }
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Error al crear PDF: ${e.message}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         }
                     }
                 )
@@ -163,14 +188,60 @@ fun HssdadeApp(db: AppDatabase) {
     }
 }
 
-private fun sharePdf(context: Context, uri: Uri, clientName: String) {
+private fun sharePdfGeneral(context: Context, uri: Uri, quote: QuoteEntity) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "application/pdf"
         putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_SUBJECT, "Cotización / Quotation - HSSDADE-LIGHT.CORP ($clientName)")
+        putExtra(Intent.EXTRA_SUBJECT, "Cotización / Quotation - HSSDADE-LIGHT.CORP (${quote.clientName})")
+        if (quote.clientEmail.isNotBlank()) {
+            putExtra(Intent.EXTRA_EMAIL, arrayOf(quote.clientEmail))
+        }
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "Compartir cotización PDF / Share PDF"))
+}
+
+private fun sendQuoteByEmail(context: Context, quote: QuoteEntity, pdfUri: Uri?) {
+    val money = NumberFormat.getCurrencyInstance(Locale.US).format(quote.total)
+    val body = """
+        Estimado/a ${quote.clientName} / Dear ${quote.clientName},
+        
+        Adjuntamos su cotización eléctrica de HSSDADE-LIGHT.CORP por un total de $money.
+        Please find attached your electrical quotation from HSSDADE-LIGHT.CORP for a total of $money.
+        
+        Servicios / Services:
+        ${quote.serviceName}
+        
+        Gracias por su confianza / Thank you for your business.
+    """.trimIndent()
+
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/pdf"
+        if (quote.clientEmail.isNotBlank()) {
+            putExtra(Intent.EXTRA_EMAIL, arrayOf(quote.clientEmail))
+        }
+        putExtra(Intent.EXTRA_SUBJECT, "Cotización Eléctrica / Electrical Quote - HSSDADE-LIGHT.CORP")
+        putExtra(Intent.EXTRA_TEXT, body)
+        if (pdfUri != null) {
+            putExtra(Intent.EXTRA_STREAM, pdfUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    context.startActivity(Intent.createChooser(intent, "Enviar por correo / Send email"))
+}
+
+private fun sendQuoteBySms(context: Context, quote: QuoteEntity) {
+    val money = NumberFormat.getCurrencyInstance(Locale.US).format(quote.total)
+    val message = "Hola ${quote.clientName}, le saludamos de HSSDADE-LIGHT.CORP. Su cotización eléctrica (${quote.serviceName.take(60)}) es por $money. Estado: ${quote.status}."
+    val smsUri = Uri.parse("smsto:${Uri.encode(quote.clientPhone)}")
+    val intent = Intent(Intent.ACTION_SENDTO, smsUri).apply {
+        putExtra("sms_body", message)
+    }
+    try {
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Toast.makeText(context, "No se encontró aplicación de mensajes SMS", Toast.LENGTH_SHORT).show()
+    }
 }
 
 private suspend fun exportDatabaseJson(context: Context, db: AppDatabase, uri: Uri) = withContext(Dispatchers.IO) {
@@ -184,10 +255,7 @@ private suspend fun exportDatabaseJson(context: Context, db: AppDatabase, uri: U
     val clientsArr = JSONArray()
     clients.forEach { c ->
         clientsArr.put(JSONObject().apply {
-            put("name", c.name)
-            put("phone", c.phone)
-            put("email", c.email)
-            put("address", c.address)
+            put("name", c.name); put("phone", c.phone); put("email", c.email); put("address", c.address)
         })
     }
     root.put("clients", clientsArr)
@@ -195,13 +263,10 @@ private suspend fun exportDatabaseJson(context: Context, db: AppDatabase, uri: U
     val quotesArr = JSONArray()
     quotes.forEach { q ->
         quotesArr.put(JSONObject().apply {
-            put("clientName", q.clientName)
-            put("serviceName", q.serviceName)
-            put("descriptionEs", q.descriptionEs)
-            put("descriptionEn", q.descriptionEn)
-            put("observations", q.observations)
-            put("quantity", q.quantity)
-            put("total", q.total)
+            put("clientName", q.clientName); put("clientPhone", q.clientPhone); put("clientEmail", q.clientEmail)
+            put("serviceName", q.serviceName); put("descriptionEs", q.descriptionEs); put("descriptionEn", q.descriptionEn)
+            put("observations", q.observations); put("quantity", q.quantity); put("total", q.total)
+            put("status", q.status); put("signatureData", q.signatureData); put("signedAt", q.signedAt)
             put("createdAt", q.createdAt)
         })
     }
@@ -238,12 +303,17 @@ private suspend fun importDatabaseJson(context: Context, db: AppDatabase, uri: U
         db.quoteDao().insert(
             QuoteEntity(
                 clientName = obj.optString("clientName"),
+                clientPhone = obj.optString("clientPhone"),
+                clientEmail = obj.optString("clientEmail"),
                 serviceName = obj.optString("serviceName"),
                 descriptionEs = obj.optString("descriptionEs"),
                 descriptionEn = obj.optString("descriptionEn"),
                 observations = obj.optString("observations"),
                 quantity = obj.optDouble("quantity", 1.0),
                 total = obj.optDouble("total", 0.0),
+                status = obj.optString("status", "Pendiente"),
+                signatureData = obj.optString("signatureData"),
+                signedAt = obj.optLong("signedAt", 0L),
                 createdAt = obj.optLong("createdAt", System.currentTimeMillis())
             )
         )
@@ -253,12 +323,37 @@ private suspend fun importDatabaseJson(context: Context, db: AppDatabase, uri: U
 }
 
 @Composable
-fun HomeScreen(clientCount: Int, quoteCount: Int, onNew: () -> Unit) {
+fun HomeScreen(clientCount: Int, quotes: List<QuoteEntity>, onNew: () -> Unit) {
+    val pending = quotes.count { it.status == "Pendiente" }
+    val approved = quotes.count { it.status == "Aprobada" }
+    val invoiced = quotes.count { it.status == "Facturada" }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Panel principal", style = MaterialTheme.typography.titleLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCard("Clientes", clientCount.toString(), Modifier.weight(1f))
-            StatCard("Cotizaciones", quoteCount.toString(), Modifier.weight(1f))
+            StatCard("Cotizaciones", quotes.size.toString(), Modifier.weight(1f))
+        }
+        Card(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("$pending", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Pendientes", style = MaterialTheme.typography.bodySmall)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("$approved", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF2D8A78))
+                    Text("Aprobadas", style = MaterialTheme.typography.bodySmall)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("$invoiced", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF145A72))
+                    Text("Facturadas", style = MaterialTheme.typography.bodySmall)
+                }
+            }
         }
         Button(onClick = onNew, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Filled.Add, contentDescription = null)
@@ -293,8 +388,8 @@ fun ClientsScreen(
     Column(Modifier.fillMaxSize()) {
         Text("Clientes", style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(name, { name = it }, label = { Text("Nombre del cliente") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(phone, { phone = it }, label = { Text("Teléfono") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(email, { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(phone, { phone = it }, label = { Text("Teléfono (para SMS)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(email, { email = it }, label = { Text("Email (para envío PDF)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(address, { address = it }, label = { Text("Dirección del trabajo") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         Button(
             onClick = {
@@ -331,6 +426,8 @@ fun ClientsScreen(
 @Composable
 fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, onSave: (QuoteEntity) -> Unit) {
     var client by remember { mutableStateOf("") }
+    var clientPhone by remember { mutableStateOf("") }
+    var clientEmail by remember { mutableStateOf("") }
     var clientExpanded by remember { mutableStateOf(false) }
     val selectedIds = remember { mutableStateListOf<Int>() }
     var showCatalogSheet by remember { mutableStateOf(false) }
@@ -345,7 +442,7 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, onSave:
     val quantity = qty.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
     val additionalMaterials = extraMaterials.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
 
-    // Cálculos económicos idénticos a la versión original
+    // Fórmulas económicas intactas
     val laborHours = selected.sumOf { it.hours }
     val materials = selected.sumOf { it.materials } + additionalMaterials
     val cost = (laborHours * settings.hourlyOperatingCost + materials) * quantity
@@ -465,15 +562,33 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, onSave:
         Text("Cliente / Customer", style = MaterialTheme.typography.labelLarge)
         Box {
             OutlinedButton(onClick = { clientExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (client.isBlank()) "Seleccionar cliente guardado / Select customer" else client)
+                Text(if (client.isBlank()) "Vincular cliente guardado / Link customer" else "Cliente: $client")
             }
             DropdownMenu(expanded = clientExpanded, onDismissRequest = { clientExpanded = false }) {
                 clients.forEach { c ->
-                    DropdownMenuItem(text = { Text(c.name) }, onClick = { client = c.name; clientExpanded = false })
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(c.name, fontWeight = FontWeight.SemiBold)
+                                val sub = listOf(c.phone, c.email).filter { it.isNotBlank() }.joinToString(" · ")
+                                if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall)
+                            }
+                        },
+                        onClick = {
+                            client = c.name
+                            clientPhone = c.phone
+                            clientEmail = c.email
+                            clientExpanded = false
+                        }
+                    )
                 }
             }
         }
         OutlinedTextField(client, { client = it }, label = { Text("Nombre del cliente / Customer name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(clientPhone, { clientPhone = it }, label = { Text("Teléfono / Phone") }, modifier = Modifier.weight(1f), singleLine = true)
+            OutlinedTextField(clientEmail, { clientEmail = it }, label = { Text("Email") }, modifier = Modifier.weight(1f), singleLine = true)
+        }
 
         Text("Servicios del catálogo / Service catalog (36)", style = MaterialTheme.typography.labelLarge)
         OutlinedButton(onClick = { showCatalogSheet = true }, modifier = Modifier.fillMaxWidth()) {
@@ -526,15 +641,19 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, onSave:
                     onSave(
                         QuoteEntity(
                             clientName = client.trim(),
+                            clientPhone = clientPhone.trim(),
+                            clientEmail = clientEmail.trim(),
                             serviceName = names,
                             descriptionEs = descEs.ifBlank { serviceNamesEs },
                             descriptionEn = descEn.ifBlank { serviceNamesEn },
                             observations = notes.trim(),
                             quantity = quantity,
-                            total = total
+                            total = total,
+                            status = "Pendiente"
                         )
                     )
-                    client = ""; selectedIds.clear(); descEs = ""; descEn = ""; notes = ""; qty = "1"; extraMaterials = "0"
+                    client = ""; clientPhone = ""; clientEmail = ""; selectedIds.clear()
+                    descEs = ""; descEn = ""; notes = ""; qty = "1"; extraMaterials = "0"
                 }
             },
             enabled = client.isNotBlank() && selected.isNotEmpty() && quantity > 0,
@@ -544,9 +663,30 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, onSave:
 }
 
 @Composable
-fun HistoryScreen(quotes: List<QuoteEntity>, onExport: (QuoteEntity, Boolean) -> Unit) {
+fun HistoryScreen(
+    quotes: List<QuoteEntity>,
+    onUpdateQuote: (QuoteEntity) -> Unit,
+    onExportPdf: (QuoteEntity, String) -> Unit
+) {
     val money = NumberFormat.getCurrencyInstance(Locale.US)
     val dateFmt = remember { SimpleDateFormat("MM/dd/yyyy", Locale.US) }
+    var signingQuote by remember { mutableStateOf<QuoteEntity?>(null) }
+
+    if (signingQuote != null) {
+        SignatureDialog(
+            quote = signingQuote!!,
+            onDismiss = { signingQuote = null },
+            onSaveSignature = { serialized ->
+                val updated = signingQuote!!.copy(
+                    signatureData = serialized,
+                    signedAt = System.currentTimeMillis(),
+                    status = if (signingQuote!!.status == "Pendiente") "Aprobada" else signingQuote!!.status
+                )
+                onUpdateQuote(updated)
+                signingQuote = null
+            }
+        )
+    }
 
     Column {
         Text("Historial de cotizaciones", style = MaterialTheme.typography.titleLarge)
@@ -554,27 +694,74 @@ fun HistoryScreen(quotes: List<QuoteEntity>, onExport: (QuoteEntity, Boolean) ->
         if (quotes.isEmpty()) {
             Text("Todavía no hay cotizaciones guardadas.")
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(quotes) { q ->
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(quotes, key = { it.id }) { q ->
                     Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(q.clientName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(q.clientName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    val contact = listOf(q.clientPhone, q.clientEmail).filter { it.isNotBlank() }.joinToString(" · ")
+                                    if (contact.isNotBlank()) {
+                                        Text(contact, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
                                 Text(dateFmt.format(Date(q.createdAt)), style = MaterialTheme.typography.bodySmall)
                             }
+
+                            // Selector de estado: Pendiente / Aprobada / Facturada
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("Pendiente", "Aprobada", "Facturada").forEach { st ->
+                                    FilterChip(
+                                        selected = q.status == st,
+                                        onClick = { onUpdateQuote(q.copy(status = st)) },
+                                        label = { Text(st) }
+                                    )
+                                }
+                            }
+
                             Text(q.serviceName, style = MaterialTheme.typography.bodyMedium)
-                            Text(money.format(q.total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(money.format(q.total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                OutlinedButton(onClick = { signingQuote = q }) {
+                                    Icon(Icons.Filled.Draw, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(if (q.signatureData.isNotBlank()) "Firmada ✓" else "Firmar")
+                                }
+                            }
+
                             if (q.observations.isNotBlank()) {
                                 Text(q.observations, style = MaterialTheme.typography.bodySmall)
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { onExport(q, false) }, modifier = Modifier.weight(1f)) {
-                                    Text("Guardar PDF")
+
+                            // Acciones vinculadas: SMS, Correo y Compartir PDF
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = { onExportPdf(q, "sms") },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Filled.Sms, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("SMS", maxLines = 1)
                                 }
-                                Button(onClick = { onExport(q, true) }, modifier = Modifier.weight(1f)) {
-                                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Compartir PDF")
+                                OutlinedButton(
+                                    onClick = { onExportPdf(q, "email") },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Filled.Email, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Correo", maxLines = 1)
+                                }
+                                Button(
+                                    onClick = { onExportPdf(q, "share") },
+                                    modifier = Modifier.weight(1.2f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("PDF", maxLines = 1)
                                 }
                             }
                         }
@@ -585,6 +772,89 @@ fun HistoryScreen(quotes: List<QuoteEntity>, onExport: (QuoteEntity, Boolean) ->
     }
 }
 
+@Composable
+fun SignatureDialog(
+    quote: QuoteEntity,
+    onDismiss: () -> Unit,
+    onSaveSignature: (String) -> Unit
+) {
+    val strokes = remember { mutableStateListOf<List<Offset>>() }
+    var currentStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var canvasSize by remember { mutableStateOf(IntSize(1, 1)) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Firma del cliente / Customer Signature") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Cliente: ${quote.clientName}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Firme con el dedo dentro del recuadro:", style = MaterialTheme.typography.bodySmall)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(170.dp)
+                        .background(Color.White, RoundedCornerShape(8.dp))
+                        .border(BorderStroke(1.5.dp, Color(0xFF145A72)), RoundedCornerShape(8.dp))
+                        .onSizeChanged { canvasSize = it }
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { offset -> currentStroke = listOf(offset) },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    currentStroke = currentStroke + change.position
+                                },
+                                onDragEnd = {
+                                    if (currentStroke.size > 1) strokes.add(currentStroke)
+                                    currentStroke = emptyList()
+                                }
+                            )
+                        }
+                ) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val allStrokes = strokes + listOf(currentStroke)
+                        allStrokes.forEach { pts ->
+                            if (pts.size >= 2) {
+                                val path = Path().apply {
+                                    moveTo(pts[0].x, pts[0].y)
+                                    for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+                                }
+                                drawPath(
+                                    path = path,
+                                    color = Color(0xFF143C4E),
+                                    style = Stroke(width = 5f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                            }
+                        }
+                    }
+                }
+                TextButton(onClick = { strokes.clear(); currentStroke = emptyList() }) {
+                    Text("Limpiar firma / Clear")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val w = canvasSize.width.coerceAtLeast(1).toFloat()
+                    val h = canvasSize.height.coerceAtLeast(1).toFloat()
+                    val serialized = strokes.joinToString(";") { stroke ->
+                        stroke.joinToString("|") { pt ->
+                            val nx = (pt.x / w).coerceIn(0f, 1f)
+                            val ny = (pt.y / h).coerceIn(0f, 1f)
+                            "${"%.4f".format(Locale.US, nx)},${"%.4f".format(Locale.US, ny)}"
+                        }
+                    }
+                    onSaveSignature(serialized)
+                },
+                enabled = strokes.isNotEmpty()
+            ) { Text("Guardar firma") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
 data class EstimateSettings(
     val electricianHourly: Double = 40.0,
     val helperHourly: Double = 25.0,
@@ -592,7 +862,9 @@ data class EstimateSettings(
     val overheadHourly: Double = 12.50,
     val marginPercent: Double = 30.0,
     val minimumVisit: Double = 125.0,
-    val applyMinimumVisit: Boolean = false
+    val applyMinimumVisit: Boolean = false,
+    val companyLicense: String = "",
+    val companyPhone: String = ""
 ) {
     val hourlyOperatingCost: Double
         get() = (electricianHourly + helperHourly) * (1.0 + reservePercent / 100.0) + overheadHourly
@@ -606,6 +878,8 @@ data class EstimateSettings(
             .putString("margin", marginPercent.toString())
             .putString("minimum", minimumVisit.toString())
             .putBoolean("apply_minimum", applyMinimumVisit)
+            .putString("company_license", companyLicense)
+            .putString("company_phone", companyPhone)
             .apply()
     }
 
@@ -620,7 +894,9 @@ data class EstimateSettings(
                 overheadHourly = number("overhead", 12.50),
                 marginPercent = number("margin", 30.0),
                 minimumVisit = number("minimum", 125.0),
-                applyMinimumVisit = p.getBoolean("apply_minimum", false)
+                applyMinimumVisit = p.getBoolean("apply_minimum", false),
+                companyLicense = p.getString("company_license", "") ?: "",
+                companyPhone = p.getString("company_phone", "") ?: ""
             )
         }
     }
@@ -633,6 +909,7 @@ fun SettingsScreen(
     onExportBackup: (Uri) -> Unit,
     onImportBackup: (Uri) -> Unit
 ) {
+    val context = LocalContext.current
     var electrician by remember(settings) { mutableStateOf(settings.electricianHourly.toString()) }
     var helper by remember(settings) { mutableStateOf(settings.helperHourly.toString()) }
     var reserve by remember(settings) { mutableStateOf(settings.reservePercent.toString()) }
@@ -640,6 +917,33 @@ fun SettingsScreen(
     var margin by remember(settings) { mutableStateOf(settings.marginPercent.toString()) }
     var minimum by remember(settings) { mutableStateOf(settings.minimumVisit.toString()) }
     var applyMin by remember(settings) { mutableStateOf(settings.applyMinimumVisit) }
+    var license by remember(settings) { mutableStateOf(settings.companyLicense) }
+    var compPhone by remember(settings) { mutableStateOf(settings.companyPhone) }
+
+    val logoFile = remember { File(context.filesDir, "company_logo.png") }
+    var logoVersion by remember { mutableStateOf(0) }
+    val currentLogoBitmap = remember(logoVersion) {
+        if (logoFile.exists()) BitmapFactory.decodeFile(logoFile.absolutePath)?.asImageBitmap() else null
+    }
+
+    val logoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    val bmp = BitmapFactory.decodeStream(input)
+                    if (bmp != null) {
+                        FileOutputStream(logoFile).use { out ->
+                            bmp.compress(Bitmap.CompressFormat.PNG, 95, out)
+                        }
+                        logoVersion++
+                        Toast.makeText(context, "Logo actualizado para el PDF", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error cargando logo: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -663,6 +967,39 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
+        Text("Identidad de empresa y Logo (PDF)", style = MaterialTheme.typography.titleLarge)
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (currentLogoBitmap != null) {
+                        Image(
+                            bitmap = currentLogoBitmap,
+                            contentDescription = "Logo empresa",
+                            modifier = Modifier.size(56.dp)
+                        )
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(if (currentLogoBitmap != null) "Logo activo en encabezado PDF" else "Sin logo cargado", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { logoLauncher.launch("image/*") }) {
+                                Text("Elegir logo")
+                            }
+                            if (currentLogoBitmap != null) {
+                                TextButton(onClick = {
+                                    logoFile.delete()
+                                    logoVersion++
+                                }) { Text("Quitar") }
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(license, { license = it }, label = { Text("Licencia eléctrica (opcional en PDF)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(compPhone, { compPhone = it }, label = { Text("Teléfono de empresa (opcional en PDF)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+
         Text("Configuración de precios", style = MaterialTheme.typography.titleLarge)
         Text("Estos valores son internos y nunca aparecen en el PDF del cliente.", style = MaterialTheme.typography.bodySmall)
 
@@ -693,7 +1030,7 @@ fun SettingsScreen(
         Button(
             onClick = {
                 if (e >= 0 && h >= 0 && r >= 0 && o >= 0 && m in 0.0..90.0 && min >= 0) {
-                    onSave(EstimateSettings(e, h, r, o, m, min, applyMin))
+                    onSave(EstimateSettings(e, h, r, o, m, min, applyMin, license.trim(), compPhone.trim()))
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -702,7 +1039,6 @@ fun SettingsScreen(
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
         Text("Respaldo de datos locales", style = MaterialTheme.typography.titleMedium)
-        Text("Exporta o importa tus clientes y cotizaciones en formato JSON.", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = { exportLauncher.launch("HSSDADE_Backup_${System.currentTimeMillis()}.json") },
