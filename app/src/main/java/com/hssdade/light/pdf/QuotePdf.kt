@@ -5,10 +5,14 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.net.toUri
 import com.hssdade.light.data.QuoteEntity
+import java.io.File
+import java.io.FileOutputStream
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -16,7 +20,9 @@ import java.util.Locale
 
 /** Creates a customer-facing bilingual PDF. Internal costs and margin are never included. */
 object QuotePdf {
-    fun create(context: Context, quote: QuoteEntity): String {
+    data class GeneratedPdf(val fileName: String, val uri: Uri?)
+
+    fun create(context: Context, quote: QuoteEntity): GeneratedPdf {
         val document = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
         val page = document.startPage(pageInfo)
@@ -29,6 +35,7 @@ object QuotePdf {
         val body = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = black; textSize = 11f; typeface = Typeface.create("sans-serif", Typeface.NORMAL) }
         val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = muted; textSize = 9f }
         val price = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = navy; textSize = 20f; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
+
         var y = 58f
         canvas.drawText("HSSDADE-LIGHT.CORP", 42f, y, title); y += 24f
         canvas.drawText("RESIDENTIAL ELECTRICAL SERVICES  |  SERVICIOS ELÉCTRICOS RESIDENCIALES", 42f, y, small); y += 28f
@@ -62,7 +69,7 @@ object QuotePdf {
 
         val fileName = "HSSDADE_Quote_${quote.id}_${System.currentTimeMillis()}.pdf"
         val resolver = context.contentResolver
-        var insertedUri: android.net.Uri? = null
+        var insertedUri: Uri? = null
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {
@@ -72,21 +79,24 @@ object QuotePdf {
                 }
                 insertedUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                     ?: throw IllegalStateException("No se pudo crear el archivo PDF")
-                resolver.openOutputStream(insertedUri!!)?.use { document.writeTo(it) }
+                resolver.openOutputStream(insertedUri)?.use { document.writeTo(it) }
                     ?: throw IllegalStateException("No se pudo guardar el PDF")
             } else {
                 val folder = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
                     ?: throw IllegalStateException("Carpeta de documentos no disponible")
-                val file = java.io.File(folder, fileName)
-                java.io.FileOutputStream(file).use { document.writeTo(it) }
+                val file = File(folder, fileName)
+                FileOutputStream(file).use { document.writeTo(it) }
+                insertedUri = file.toUri()
             }
         } catch (e: Exception) {
-            insertedUri?.let { resolver.delete(it, null, null) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                insertedUri?.let { resolver.delete(it, null, null) }
+            }
             throw e
         } finally {
             document.close()
         }
-        return fileName
+        return GeneratedPdf(fileName, insertedUri)
     }
 
     private fun drawWrapped(canvas: android.graphics.Canvas, text: String, x: Float, startY: Float, paint: Paint, maxWidth: Float): Float {
@@ -94,7 +104,7 @@ object QuotePdf {
         val words = text.replace("\n", " ").split(Regex("\\s+"))
         var line = StringBuilder()
         for (word in words) {
-            val candidate = if (line.isEmpty()) word else "${line} $word"
+            val candidate = if (line.isEmpty()) word else "$line $word"
             if (paint.measureText(candidate) > maxWidth && line.isNotEmpty()) {
                 canvas.drawText(line.toString(), x, y, paint); y += 16f; line = StringBuilder(word)
             } else line = StringBuilder(candidate)
