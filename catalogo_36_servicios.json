@@ -1,0 +1,290 @@
+[
+  {
+    "id": 1,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Reemplazar receptáculo estándar",
+    "hours": 0.5,
+    "materials": 8.0,
+    "notes": "Reemplazo directo; visita mínima se cotiza aparte."
+  },
+  {
+    "id": 2,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Reemplazar receptáculo GFCI",
+    "hours": 0.75,
+    "materials": 18.0,
+    "notes": "Verificar protección, ubicación y requisitos aplicables."
+  },
+  {
+    "id": 3,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Reemplazar interruptor sencillo",
+    "hours": 0.5,
+    "materials": 7.0,
+    "notes": "Reemplazo directo."
+  },
+  {
+    "id": 4,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Instalar dimmer compatible",
+    "hours": 0.75,
+    "materials": 25.0,
+    "notes": "Confirmar compatibilidad con luminaria y carga."
+  },
+  {
+    "id": 5,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Receptáculo nuevo, recorrido cercano",
+    "hours": 2.0,
+    "materials": 25.0,
+    "notes": "Supuesto de recorrido corto y acceso razonable."
+  },
+  {
+    "id": 6,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Receptáculo nuevo, recorrido medio",
+    "hours": 3.0,
+    "materials": 75.0,
+    "notes": "La distancia y el tipo de pared pueden cambiar el costo."
+  },
+  {
+    "id": 7,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Receptáculo exterior WR/GFCI",
+    "hours": 2.5,
+    "materials": 65.0,
+    "notes": "Incluye caja/cubierta apta para exterior; condiciones especiales aparte."
+  },
+  {
+    "id": 8,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Receptáculo 240V en circuito existente",
+    "hours": 1.75,
+    "materials": 45.0,
+    "notes": "Solo si el circuito existente tiene capacidad y configuración adecuadas."
+  },
+  {
+    "id": 9,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Instalar caja de conexiones accesible",
+    "hours": 1.25,
+    "materials": 20.0,
+    "notes": "No incluye empalmes ocultos ni reparación de acabados."
+  },
+  {
+    "id": 10,
+    "category": "Receptáculos e interruptores",
+    "nameEs": "Reemplazar caja eléctrica existente",
+    "hours": 1.25,
+    "materials": 18.0,
+    "notes": "Supone acceso razonable y sin daño estructural."
+  },
+  {
+    "id": 11,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Punto de iluminación nuevo",
+    "hours": 3.0,
+    "materials": 65.0,
+    "notes": "Recorrido estándar; acabado y acceso pueden variar."
+  },
+  {
+    "id": 12,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Reemplazar luminaria sencilla",
+    "hours": 1.25,
+    "materials": 15.0,
+    "notes": "Luminaria suministrada por cliente; confirmar peso y soporte."
+  },
+  {
+    "id": 13,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Instalar luz LED empotrada individual",
+    "hours": 1.0,
+    "materials": 30.0,
+    "notes": "Supone espacio y acceso adecuados; luminaria básica."
+  },
+  {
+    "id": 14,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Paquete de 4 luces LED empotradas",
+    "hours": 3.5,
+    "materials": 120.0,
+    "notes": "Precio por paquete; luminarias básicas."
+  },
+  {
+    "id": 15,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Instalar ventilador de techo",
+    "hours": 2.0,
+    "materials": 45.0,
+    "notes": "Supone caja/soporte existente apto y ventilador suministrado por cliente."
+  },
+  {
+    "id": 16,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Instalar soporte reforzado para ventilador",
+    "hours": 3.0,
+    "materials": 75.0,
+    "notes": "Solo estructura accesible; reparar techo no incluido."
+  },
+  {
+    "id": 17,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Reemplazar extractor de baño",
+    "hours": 2.0,
+    "materials": 55.0,
+    "notes": "Supone ducto y alimentación existentes compatibles."
+  },
+  {
+    "id": 18,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Instalar detector de humo cableado",
+    "hours": 1.5,
+    "materials": 35.0,
+    "notes": "Supone circuito/interconexión existente accesible."
+  },
+  {
+    "id": 19,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Instalar detector de CO cableado",
+    "hours": 1.5,
+    "materials": 45.0,
+    "notes": "Supone alimentación existente accesible."
+  },
+  {
+    "id": 20,
+    "category": "Iluminación y ventilación",
+    "nameEs": "Reemplazar interruptor de 3 vías",
+    "hours": 1.0,
+    "materials": 12.0,
+    "notes": "Reemplazo; diagnóstico de cableado se cotiza aparte."
+  },
+  {
+    "id": 21,
+    "category": "Circuitos nuevos",
+    "nameEs": "Circuito dedicado 20A, hasta 50 ft",
+    "hours": 3.0,
+    "materials": 110.0,
+    "notes": "Supone ruta accesible y panel con capacidad."
+  },
+  {
+    "id": 22,
+    "category": "Circuitos nuevos",
+    "nameEs": "Circuito dedicado 20A, 50–100 ft",
+    "hours": 5.0,
+    "materials": 190.0,
+    "notes": "Supone ruta accesible; no incluye acabado/reparación."
+  },
+  {
+    "id": 23,
+    "category": "Circuitos nuevos",
+    "nameEs": "Circuito 240V, 30A, hasta 50 ft",
+    "hours": 4.0,
+    "materials": 160.0,
+    "notes": "Calibre y protección sujetos a carga, equipo y método de instalación."
+  },
+  {
+    "id": 24,
+    "category": "Circuitos nuevos",
+    "nameEs": "Circuito 240V, 50A, hasta 50 ft",
+    "hours": 5.0,
+    "materials": 230.0,
+    "notes": "Calibre y protección sujetos a carga, equipo y método de instalación."
+  },
+  {
+    "id": 25,
+    "category": "Circuitos nuevos",
+    "nameEs": "Circuito dedicado para microondas",
+    "hours": 3.0,
+    "materials": 110.0,
+    "notes": "Supone recorrido accesible y panel compatible."
+  },
+  {
+    "id": 26,
+    "category": "Circuitos nuevos",
+    "nameEs": "Circuito dedicado para dishwasher",
+    "hours": 3.0,
+    "materials": 100.0,
+    "notes": "Supone recorrido accesible; coordinación con equipo."
+  },
+  {
+    "id": 27,
+    "category": "Circuitos nuevos",
+    "nameEs": "Circuito dedicado para triturador",
+    "hours": 2.5,
+    "materials": 75.0,
+    "notes": "Supone recorrido accesible y ubicación existente."
+  },
+  {
+    "id": 28,
+    "category": "Circuitos nuevos",
+    "nameEs": "Circuito dedicado para laundry 20A",
+    "hours": 4.0,
+    "materials": 145.0,
+    "notes": "Supone ruta accesible y requisitos del área de lavandería."
+  },
+  {
+    "id": 29,
+    "category": "Circuitos nuevos",
+    "nameEs": "Circuito para A/C sin desconectivo",
+    "hours": 5.0,
+    "materials": 210.0,
+    "notes": "Estimación preliminar; confirmar placa, MCA/MOCP y ruta."
+  },
+  {
+    "id": 30,
+    "category": "Circuitos nuevos",
+    "nameEs": "Instalar desconectivo para A/C",
+    "hours": 2.0,
+    "materials": 85.0,
+    "notes": "Supone circuito existente adecuado; verificar equipo y ubicación."
+  },
+  {
+    "id": 31,
+    "category": "Paneles, protección y diagnóstico",
+    "nameEs": "Reemplazar breaker estándar compatible",
+    "hours": 0.75,
+    "materials": 25.0,
+    "notes": "Solo breaker listado/compatible; verificar panel y condición."
+  },
+  {
+    "id": 32,
+    "category": "Paneles, protección y diagnóstico",
+    "nameEs": "Reemplazar breaker GFCI/AFCI compatible",
+    "hours": 1.25,
+    "materials": 95.0,
+    "notes": "Verificar tipo de panel, compatibilidad y diagnóstico."
+  },
+  {
+    "id": 33,
+    "category": "Paneles, protección y diagnóstico",
+    "nameEs": "Instalar subpanel básico",
+    "hours": 10.0,
+    "materials": 450.0,
+    "notes": "Estimación muy preliminar; requiere visita, cálculo y alcance definido."
+  },
+  {
+    "id": 34,
+    "category": "Paneles, protección y diagnóstico",
+    "nameEs": "Reemplazar panel residencial básico",
+    "hours": 16.0,
+    "materials": 950.0,
+    "notes": "No usar como precio fijo sin inspección, carga, permiso y alcance."
+  },
+  {
+    "id": 35,
+    "category": "Paneles, protección y diagnóstico",
+    "nameEs": "Instalar conductor de grounding/bonding",
+    "hours": 5.0,
+    "materials": 180.0,
+    "notes": "Ruta, tamaño, electrodos y requisitos deben verificarse en sitio."
+  },
+  {
+    "id": 36,
+    "category": "Paneles, protección y diagnóstico",
+    "nameEs": "Diagnóstico eléctrico, primera hora",
+    "hours": 1.0,
+    "materials": 10.0,
+    "notes": "Precio mínimo de diagnóstico; reparaciones y materiales adicionales aparte."
+  }
+]
