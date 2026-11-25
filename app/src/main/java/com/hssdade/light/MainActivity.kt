@@ -1,7 +1,9 @@
 package com.hssdade.light
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -55,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hssdade.light.data.*
@@ -964,6 +967,31 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
     val attachedPhotos = remember { mutableStateListOf<String>() }
     var pendingCameraFile by remember { mutableStateOf<File?>(null) }
     var pendingLensFile by remember { mutableStateOf<File?>(null) }
+    var pendingCameraAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            pendingCameraAction?.invoke()
+        } else {
+            Toast.makeText(context, "Activa el permiso de cámara para tomar fotos", Toast.LENGTH_SHORT).show()
+        }
+        pendingCameraAction = null
+    }
+
+    fun launchWithCameraPermission(action: () -> Unit) {
+        val hasCameraPerm = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasCameraPerm) {
+            action()
+        } else {
+            pendingCameraAction = action
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 
     val galleryPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         uris.take(6 - attachedPhotos.size).forEach { uri ->
@@ -981,8 +1009,12 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
     val lensCameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val file = pendingLensFile
         if (success && file != null && file.exists()) {
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            launchVisualIdentifier(context, uri)
+            try {
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                launchVisualIdentifier(context, uri)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error abriendo Lens: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -1217,9 +1249,15 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = {
-                                val (uri, file) = createTempCameraUri(context)
-                                pendingLensFile = file
-                                lensCameraLauncher.launch(uri)
+                                launchWithCameraPermission {
+                                    try {
+                                        val (uri, file) = createTempCameraUri(context)
+                                        pendingLensFile = file
+                                        lensCameraLauncher.launch(uri)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error cámara: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
                             },
                             modifier = Modifier.weight(1f)
                         ) {
@@ -1310,9 +1348,15 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
                             OutlinedButton(
                                 onClick = {
                                     if (attachedPhotos.size < 6) {
-                                        val (uri, file) = createTempCameraUri(context)
-                                        pendingCameraFile = file
-                                        cameraLauncher.launch(uri)
+                                        launchWithCameraPermission {
+                                            try {
+                                                val (uri, file) = createTempCameraUri(context)
+                                                pendingCameraFile = file
+                                                cameraLauncher.launch(uri)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error cámara: ${e.message}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
                                     }
                                 },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
