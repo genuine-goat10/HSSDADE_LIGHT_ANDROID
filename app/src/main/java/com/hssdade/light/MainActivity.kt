@@ -131,13 +131,13 @@ fun ApexBidLogo(size: Dp = 40.dp) {
     Canvas(modifier = Modifier.size(size)) {
         val w = this.size.width
         val h = this.size.height
-        
+
         // Fondo Azul Marino
         drawRoundRect(
             color = Color(0xFF145A72),
             cornerRadius = CornerRadius(w * 0.22f, h * 0.22f)
         )
-        
+
         // Grupo de glifos escalado al tamaño del Canvas
         val sw = w * 0.72f
         val sh = h * 0.72f
@@ -198,13 +198,13 @@ fun ApexBidLogo(size: Dp = 40.dp) {
         drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.405f), Size(sw * 0.11f, sh * 0.035f), CornerRadius(2f, 2f))
         drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.508f), Size(sw * 0.10f, sh * 0.032f), CornerRadius(2f, 2f))
 
-        // Celdas de Cuadrícula / Datos simulados en Estimado (Sombreados verdes y azules)
+        // Celdas de Cuadrícula / Datos simulados en Estimado
         drawRect(Color(0xFF2D8A78), Offset(ox + sw * 0.60f, oy + sh * 0.145f), Size(sw * 0.045f, sh * 0.05f))
         drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.668f, oy + sh * 0.145f), Size(sw * 0.037f, sh * 0.05f))
-        
+
         drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.60f, oy + sh * 0.218f), Size(sw * 0.045f, sh * 0.04f))
         drawRect(Color(0xFF2D8A78), Offset(ox + sw * 0.668f, oy + sh * 0.218f), Size(sw * 0.037f, sh * 0.04f))
-        
+
         drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.668f, oy + sh * 0.282f), Size(sw * 0.057f, sh * 0.048f))
 
         drawRect(Color(0xFF2D8A78), Offset(ox + sw * 0.60f, oy + sh * 0.412f), Size(sw * 0.045f, sh * 0.05f))
