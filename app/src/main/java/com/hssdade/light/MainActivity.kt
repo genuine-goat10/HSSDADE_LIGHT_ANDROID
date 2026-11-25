@@ -87,19 +87,13 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ApexBidLogo(size: Dp = 40.dp) {
-    Box(
+    Image(
+        painter = androidx.compose.ui.res.painterResource(id = R.drawable.apexbid_icon),
+        contentDescription = "ApexBid Logo",
         modifier = Modifier
             .size(size)
-            .background(Color(0xFF0F4761), RoundedCornerShape(size * 0.22f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_launcher_foreground),
-            contentDescription = "ApexBid Logo",
-            tint = Color.Unspecified,
-            modifier = Modifier.fillMaxSize()
-        )
-    }
+            .clip(RoundedCornerShape(size * 0.22f))
+    )
 }
 
 @Composable
