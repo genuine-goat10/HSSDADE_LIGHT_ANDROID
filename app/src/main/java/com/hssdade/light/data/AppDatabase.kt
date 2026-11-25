@@ -1,13 +1,29 @@
 package com.hssdade.light.data
 
 import android.content.Context
+import androidx.room.Dao
 import androidx.room.Database
+import androidx.room.Delete
 import androidx.room.Entity
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
+import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Update
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import kotlinx.coroutines.flow.Flow
+
+@Entity(tableName = "clients")
+data class ClientEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val phone: String = "",
+    val email: String = "",
+    val address: String = ""
+)
 
 @Entity(tableName = "quotes")
 data class QuoteEntity(
@@ -28,6 +44,36 @@ data class QuoteEntity(
     val photoUris: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
+
+@Dao
+interface ClientDao {
+    @Query("SELECT * FROM clients ORDER BY name ASC")
+    fun observeAll(): Flow<List<ClientEntity>>
+
+    @Query("SELECT * FROM clients ORDER BY name ASC")
+    suspend fun getAllOnce(): List<ClientEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(client: ClientEntity): Long
+
+    @Delete
+    suspend fun delete(client: ClientEntity)
+}
+
+@Dao
+interface QuoteDao {
+    @Query("SELECT * FROM quotes ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<QuoteEntity>>
+
+    @Query("SELECT * FROM quotes ORDER BY createdAt DESC")
+    suspend fun getAllOnce(): List<QuoteEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(quote: QuoteEntity): Long
+
+    @Update
+    suspend fun update(quote: QuoteEntity)
+}
 
 @Database(entities = [ClientEntity::class, QuoteEntity::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
