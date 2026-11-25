@@ -345,58 +345,6 @@ fun ApexBidApp(db: AppDatabase) {
     }
 }
 
-@Composable
-fun ApexBidApp(db: AppDatabase) {
-
-    if (isTabletLandscape) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Row(Modifier.fillMaxSize()) {
-                NavigationRail(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    header = {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(vertical = 12.dp)
-                        ) {
-                            ApexBidLogo(size = 42.dp)
-                            Spacer(Modifier.height(4.dp))
-                            Text("ApexBid", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                ) {
-                    navItems.forEach { (label, icon, index) ->
-                        NavigationRailItem(
-                            selected = tab == index,
-                            onClick = { tab = index },
-                            icon = { Icon(icon, contentDescription = label) },
-                            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        )
-                    }
-                }
-                VerticalDivider()
-                mainContent(Modifier.weight(1f))
-            }
-        }
-    } else {
-        Scaffold(
-            bottomBar = {
-                NavigationBar {
-                    navItems.forEach { (label, icon, index) ->
-                        NavigationBarItem(
-                            selected = tab == index,
-                            onClick = { tab = index },
-                            icon = { Icon(icon, contentDescription = label) },
-                            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        )
-                    }
-                }
-            }
-        ) { padding ->
-            mainContent(Modifier.padding(padding))
-        }
-    }
-}
-
 private fun openInGoogleMaps(context: Context, address: String) {
     val clean = address.trim()
     if (clean.isEmpty()) {
@@ -434,10 +382,10 @@ private fun sendQuoteByEmail(context: Context, quote: QuoteEntity, pdfUri: Uri?,
     val money = NumberFormat.getCurrencyInstance(Locale.US).format(quote.total)
     val docType = if (quote.status == "Facturada") "Factura / Invoice" else "Cotización / Estimate"
     val body = """
-        Estimado/a ${quote.clientName} / Dear${quote.clientName},
+        Estimado/a ${quote.clientName} / Dear ${quote.clientName},
         
-        Adjuntamos su $docType eléctrica de $brand por un total de$money.
-        Please find attached your electrical document from $brand for a total of$money.
+        Adjuntamos su $docType eléctrica de $brand por un total de $money.
+        Please find attached your electrical document from $brand for a total of $money.
         
         Servicios / Services:
         ${quote.serviceName}
@@ -463,7 +411,7 @@ private fun sendQuoteByEmail(context: Context, quote: QuoteEntity, pdfUri: Uri?,
 private fun sendQuoteBySms(context: Context, quote: QuoteEntity, brandName: String) {
     val brand = brandName.ifBlank { "ApexBid" }
     val money = NumberFormat.getCurrencyInstance(Locale.US).format(quote.total)
-    val message = "Hola ${quote.clientName}, le saludamos de$brand. Su cotización eléctrica (${quote.serviceName.take(55)}) es por $money. Estado: ${quote.status}."
+    val message = "Hola ${quote.clientName}, le saludamos de $brand. Su cotización eléctrica (${quote.serviceName.take(55)}) es por $money. Estado: ${quote.status}."
     val smsUri = Uri.parse("smsto:${Uri.encode(quote.clientPhone)}")
     val intent = Intent(Intent.ACTION_SENDTO, smsUri).apply {
         putExtra("sms_body", message)
@@ -926,10 +874,9 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
     val quantity = qty.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
     val additionalMaterials = extraMaterials.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
 
-    // Fórmulas económicas intactas
     val laborHours = selected.sumOf { it.hours }
     val materials = selected.sumOf { it.materials } + additionalMaterials
-   val cost = (laborHours * settings.hourlyOperatingCost + materials) * quantity
+    val cost = (laborHours * settings.hourlyOperatingCost + materials) * quantity
     val margin = settings.marginPercent / 100.0
     val rawTotal = if (cost > 0 && margin < 1) cost / (1 - margin) else 0.0
     val total = if (settings.applyMinimumVisit && rawTotal > 0 && rawTotal < settings.minimumVisit) {
