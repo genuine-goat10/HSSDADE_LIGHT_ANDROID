@@ -4,61 +4,56 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Letra A (Verde #2D8A78) centrada y fusionada con la B -->
-    <path
-        android:fillColor="#2D8A78"
-        android:pathData="M37.5,32 L46.5,32 L54.5,58 L54.5,76 L46.5,76 L44.3,68 L35.2,68 L33.0,76 L24.5,76 Z" />
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.76"
+        android:scaleY="0.76">
 
-    <!-- Triángulo interior de la A (fondo azul marino #145A72) -->
-    <path
-        android:fillColor="#145A72"
-        android:pathData="M41.6,43.5 L37.3,59.5 L44.2,59.5 Z" />
+        <!-- Sombra suave del monograma AB -->
+        <path
+            android:fillColor="#082A3A"
+            android:pathData="M31.0,27.5 H43.0 L54.0,63.5 C55.2,67.5 57.5,70.5 61.5,71.5 H51.5 C46.5,71.5 43.8,68.5 42.3,63.5 L41.5,61.0 H27.5 L24.5,71.5 H13.5 Z" />
+        <path
+            android:fillColor="#082A3A"
+            android:pathData="M51.5,27.5 H75.5 C83.5,27.5 88.5,31.8 88.5,38.8 C88.5,44.2 85.2,48.2 80.2,49.8 C86.5,51.4 90.5,56.0 90.5,62.5 C90.5,70.2 84.8,75.0 75.8,75.0 H54.5 C51.5,75.0 49.5,72.5 49.5,69.0 V27.5 Z" />
 
-    <!-- Puente de fusión horizontal entre la A y la columna de la B -->
-    <path
-        android:fillColor="#2D8A78"
-        android:pathData="M43.5,59.5 L53.5,59.5 L53.5,68 L43.5,68 Z" />
+        <!-- Letra B (Blanca #FFFFFF) como hoja de cálculo -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M50.0,25.5 H74.5 C82.8,25.5 87.8,29.8 87.8,36.8 C87.8,42.2 84.5,46.2 79.5,47.8 C85.8,49.4 89.8,54.0 89.8,60.5 C89.8,68.2 84.0,73.0 74.8,73.0 H55.5 C51.8,73.0 50.0,70.5 50.0,66.5 Z" />
 
-    <!-- Letra B (Blanca #FFFFFF) -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M52.0,32 H70.5 C77.2,32 81.2,35.8 81.2,42.2 C81.2,47.2 78.4,50.8 73.8,52.3 C79.5,53.8 83.0,58.0 83.0,64.2 C83.0,71.5 78.2,76.0 70.8,76.0 H52.0 Z" />
+        <!-- Líneas horizontales de la tabla dentro de la B -->
+        <path
+            android:fillColor="#145A72"
+            android:pathData="M50.0,30.5 H86.0 V31.5 H50.0 Z M50.0,35.5 H87.5 V36.5 H50.0 Z M50.0,40.5 H87.0 V41.5 H50.0 Z M50.0,45.5 H84.0 V46.5 H50.0 Z M50.0,50.5 H86.5 V51.5 H50.0 Z M50.0,55.5 H89.0 V56.5 H50.0 Z M50.0,60.5 H89.5 V61.5 H50.0 Z M50.0,65.5 H87.5 V66.5 H50.0 Z M51.5,70.0 H83.0 V71.0 H51.5 Z" />
 
-    <!-- Ventana superior de la B (tabla de cálculo superior) -->
-    <path
-        android:fillColor="#145A72"
-        android:pathData="M59.5,37.8 H71.0 C73.2,37.8 74.5,39.2 74.5,41.5 V47.0 C74.5,49.0 73.2,50.2 71.0,50.2 H59.5 Z" />
+        <!-- Líneas verticales de columnas dentro de la B -->
+        <path
+            android:fillColor="#145A72"
+            android:pathData="M57.5,25.5 H58.5 V73.0 H57.5 Z M66.5,25.5 H67.5 V73.0 H66.5 Z M75.5,25.8 H76.5 V72.8 H75.5 Z M83.5,28.5 H84.5 V70.0 H83.5 Z" />
 
-    <!-- Celdas de datos dentro de la ventana superior de la B -->
-    <path
-        android:fillColor="#2D8A78"
-        android:pathData="M60.2,38.5 H66.2 V43.3 H60.2 Z" />
-    <path
-        android:fillColor="#7BA4B3"
-        android:pathData="M67.6,38.5 H73.6 V43.3 H67.6 Z" />
-    <path
-        android:fillColor="#7BA4B3"
-        android:pathData="M60.2,44.7 H66.2 V49.5 H60.2 Z" />
-    <path
-        android:fillColor="#2D8A78"
-        android:pathData="M67.6,44.7 H73.6 V49.5 H67.6 Z" />
+        <!-- Puntos/datos simulados en las celdas de la tabla -->
+        <path
+            android:fillColor="#0F4761"
+            android:pathData="M60.5,27.5 H63.5 V28.8 H60.5 Z M69.5,27.5 H72.5 V28.8 H69.5 Z M78.5,27.5 H81.0 V28.8 H78.5 Z M60.5,47.5 H63.5 V48.8 H60.5 Z M69.5,47.5 H72.5 V48.8 H69.5 Z M78.5,47.5 H81.5 V48.8 H78.5 Z M60.5,67.5 H63.5 V68.8 H60.5 Z M69.5,67.5 H72.5 V68.8 H69.5 Z M78.5,67.5 H81.0 V68.8 H78.5 Z" />
 
-    <!-- Ventana inferior de la B (tabla de cálculo inferior) -->
-    <path
-        android:fillColor="#145A72"
-        android:pathData="M59.5,57.2 H72.0 C74.5,57.2 76.0,58.8 76.0,61.2 V66.5 C76.0,68.8 74.5,70.2 72.0,70.2 H59.5 Z" />
+        <!-- Dos huecos internos oscuros de la B (#0B3B50) -->
+        <path
+            android:fillColor="#0B3B50"
+            android:pathData="M58.5,33.5 H72.5 C75.2,33.5 76.8,35.0 76.8,37.8 C76.8,40.5 75.2,42.0 72.5,42.0 H58.5 Z" />
+        <path
+            android:fillColor="#0B3B50"
+            android:pathData="M58.5,53.5 H73.8 C76.8,53.5 78.5,55.2 78.5,58.2 C78.5,61.2 76.8,62.8 73.8,62.8 H58.5 Z" />
 
-    <!-- Celdas de datos dentro de la ventana inferior de la B -->
-    <path
-        android:fillColor="#7BA4B3"
-        android:pathData="M60.2,58.0 H67.0 V63.0 H60.2 Z" />
-    <path
-        android:fillColor="#2D8A78"
-        android:pathData="M68.4,58.0 H75.0 V63.0 H68.4 Z" />
-    <path
-        android:fillColor="#2D8A78"
-        android:pathData="M60.2,64.4 H67.0 V69.4 H60.2 Z" />
-    <path
-        android:fillColor="#7BA4B3"
-        android:pathData="M68.4,64.4 H75.0 V69.4 H68.4 Z" />
+        <!-- Letra A (Verde esmeralda #22886E) con base curva fusionándose debajo de la B -->
+        <path
+            android:fillColor="#22886E"
+            android:pathData="M29.8,25.5 H41.8 L52.8,61.5 C54.0,65.5 56.5,68.8 61.5,70.2 L61.5,73.0 H51.2 C45.2,73.0 42.4,69.8 40.8,64.2 L39.8,60.8 H25.8 L22.5,73.0 H11.5 Z" />
+
+        <!-- Triángulo interior de la A (#0F4761) -->
+        <path
+            android:fillColor="#0F4761"
+            android:pathData="M34.8,38.0 L28.4,52.2 H38.6 Z" />
+    </group>
 </vector>
