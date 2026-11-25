@@ -87,83 +87,18 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ApexBidLogo(size: Dp = 40.dp) {
-    Canvas(modifier = Modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-
-        drawRoundRect(
-            color = Color(0xFF145A72),
-            cornerRadius = CornerRadius(w * 0.22f, h * 0.22f)
+    Box(
+        modifier = Modifier
+            .size(size)
+            .background(Color(0xFF0F4761), RoundedCornerShape(size * 0.22f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_launcher_foreground),
+            contentDescription = "ApexBid Logo",
+            tint = Color.Unspecified,
+            modifier = Modifier.fillMaxSize()
         )
-
-        val sw = w * 0.72f
-        val sh = h * 0.72f
-        val ox = w * 0.14f
-        val oy = h * 0.14f
-
-        val pathA = Path().apply {
-            moveTo(ox + sw * 0.11f, oy + sh * 0.59f)
-            lineTo(ox + sw * 0.28f, oy + sh * 0.12f)
-            lineTo(ox + sw * 0.43f, oy + sh * 0.12f)
-            lineTo(ox + sw * 0.33f, oy + sh * 0.40f)
-            cubicTo(ox + sw * 0.42f, oy + sh * 0.42f, ox + sw * 0.45f, oy + sh * 0.47f, ox + sw * 0.45f, oy + sh * 0.51f)
-            lineTo(ox + sw * 0.34f, oy + sh * 0.53f)
-            cubicTo(ox + sw * 0.34f, oy + sh * 0.48f, ox + sw * 0.31f, oy + sh * 0.45f, ox + sw * 0.24f, oy + sh * 0.45f)
-            lineTo(ox + sw * 0.16f, oy + sh * 0.45f)
-            lineTo(ox + sw * 0.11f, oy + sh * 0.59f)
-            close()
-        }
-        drawPath(path = pathA, color = Color(0xFF2D8A78))
-
-        val pathBridge = Path().apply {
-            moveTo(ox + sw * 0.16f, oy + sh * 0.45f)
-            lineTo(ox + sw * 0.36f, oy + sh * 0.45f)
-            cubicTo(ox + sw * 0.40f, oy + sh * 0.45f, ox + sw * 0.44f, oy + sh * 0.48f, ox + sw * 0.46f, oy + sh * 0.51f)
-            cubicTo(ox + sw * 0.49f, oy + sh * 0.48f, ox + sw * 0.53f, oy + sh * 0.45f, ox + sw * 0.57f, oy + sh * 0.45f)
-            lineTo(ox + sw * 0.59f, oy + sh * 0.45f)
-            lineTo(ox + sw * 0.59f, oy + sh * 0.37f)
-            lineTo(ox + sw * 0.51f, oy + sh * 0.37f)
-            lineTo(ox + sw * 0.51f, oy + sh * 0.29f)
-            lineTo(ox + sw * 0.59f, oy + sh * 0.29f)
-            lineTo(ox + sw * 0.59f, oy + sh * 0.12f)
-            lineTo(ox + sw * 0.48f, oy + sh * 0.12f)
-            lineTo(ox + sw * 0.48f, oy + sh * 0.20f)
-            lineTo(ox + sw * 0.39f, oy + sh * 0.20f)
-            lineTo(ox + sw * 0.36f, oy + sh * 0.29f)
-            close()
-        }
-        drawPath(path = pathBridge, color = Color(0xFF2D8A78))
-
-        val pathB = Path().apply {
-            moveTo(ox + sw * 0.48f, oy + sh * 0.12f)
-            lineTo(ox + sw * 0.70f, oy + sh * 0.12f)
-            cubicTo(ox + sw * 0.77f, oy + sh * 0.12f, ox + sw * 0.82f, oy + sh * 0.16f, ox + sw * 0.82f, oy + sh * 0.22f)
-            cubicTo(ox + sw * 0.82f, oy + sh * 0.27f, ox + sw * 0.79f, oy + sh * 0.31f, ox + sw * 0.74f, oy + sh * 0.33f)
-            cubicTo(ox + sw * 0.80f, oy + sh * 0.34f, ox + sw * 0.84f, oy + sh * 0.39f, ox + sw * 0.84f, oy + sh * 0.46f)
-            cubicTo(ox + sw * 0.84f, oy + sh * 0.54f, ox + sw * 0.77f, oy + sh * 0.59f, ox + sw * 0.68f, oy + sh * 0.59f)
-            lineTo(ox + sw * 0.48f, oy + sh * 0.59f)
-            close()
-        }
-        drawPath(path = pathB, color = Color.White)
-
-        drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.138f), Size(sw * 0.09f, sh * 0.032f), CornerRadius(2f, 2f))
-        drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.275f), Size(sw * 0.10f, sh * 0.055f), CornerRadius(2f, 2f))
-        drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.405f), Size(sw * 0.11f, sh * 0.035f), CornerRadius(2f, 2f))
-        drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.508f), Size(sw * 0.10f, sh * 0.032f), CornerRadius(2f, 2f))
-
-        drawRect(Color(0xFF2D8A78), Offset(ox + sw * 0.60f, oy + sh * 0.145f), Size(sw * 0.045f, sh * 0.05f))
-        drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.668f, oy + sh * 0.145f), Size(sw * 0.037f, sh * 0.05f))
-
-        drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.60f, oy + sh * 0.218f), Size(sw * 0.045f, sh * 0.04f))
-        drawRect(Color(0xFF2D8A78), Offset(ox + sw * 0.668f, oy + sh * 0.218f), Size(sw * 0.037f, sh * 0.04f))
-
-        drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.668f, oy + sh * 0.282f), Size(sw * 0.057f, sh * 0.048f))
-
-        drawRect(Color(0xFF2D8A78), Offset(ox + sw * 0.60f, oy + sh * 0.412f), Size(sw * 0.045f, sh * 0.05f))
-        drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.668f, oy + sh * 0.412f), Size(sw * 0.062f, sh * 0.05f))
-
-        drawRect(Color(0xFF2D8A78), Offset(ox + sw * 0.60f, oy + sh * 0.488f), Size(sw * 0.045f, sh * 0.04f))
-        drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.668f, oy + sh * 0.488f), Size(sw * 0.047f, sh * 0.04f))
     }
 }
 
