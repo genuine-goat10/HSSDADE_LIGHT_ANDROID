@@ -90,61 +90,17 @@ fun ApexBidLogo(size: Dp = 40.dp) {
     Canvas(modifier = Modifier.size(size)) {
         val w = this.size.width
         val h = this.size.height
-        drawRoundRect(
-            color = Color(0xFF145A72),
-            cornerRadius = CornerRadius(w * 0.22f, h * 0.22f)
-        )
-        // Hoja de cálculo / cotización blanca
-        drawRoundRect(
-            color = Color.White,
-            topLeft = Offset(w * 0.24f, h * 0.18f),
-            size = Size(w * 0.44f, h * 0.62f),
-            cornerRadius = CornerRadius(w * 0.06f, h * 0.06f)
-        )
-        // Líneas de partidas y total
-        drawRect(Color(0xFF145A72), Offset(w * 0.31f, h * 0.30f), Size(w * 0.24f, h * 0.05f))
-        drawRect(Color(0xFF7BA4B3), Offset(w * 0.31f, h * 0.41f), Size(w * 0.30f, h * 0.045f))
-        drawRect(Color(0xFF7BA4B3), Offset(w * 0.31f, h * 0.51f), Size(w * 0.20f, h * 0.045f))
-        drawRect(Color(0xFF2D8A78), Offset(w * 0.31f, h * 0.63f), Size(w * 0.16f, h * 0.055f))
 
-        // Sello circular verde con rayo dorado
-        val cx = w * 0.68f
-        val cy = h * 0.68f
-        val r = w * 0.20f
-        drawCircle(color = Color(0xFF2D8A78), radius = r, center = Offset(cx, cy))
-
-        val bolt = Path().apply {
-            moveTo(cx + r * 0.18f, cy - r * 0.58f)
-            lineTo(cx - r * 0.42f, cy + r * 0.08f)
-            lineTo(cx - r * 0.02f, cy + r * 0.08f)
-            lineTo(cx - r * 0.20f, cy + r * 0.62f)
-            lineTo(cx + r * 0.45f, cy - r * 0.08f)
-            lineTo(cx + r * 0.04f, cy - r * 0.08f)
-            close()
-        }
-        drawPath(path = bolt, color = Color(0xFFEBB328))
-    }
-}
-
-@Composable
-fun ApexBidLogo(size: Dp = 40.dp) {
-    Canvas(modifier = Modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-
-        // Fondo Azul Marino
         drawRoundRect(
             color = Color(0xFF145A72),
             cornerRadius = CornerRadius(w * 0.22f, h * 0.22f)
         )
 
-        // Grupo de glifos escalado al tamaño del Canvas
         val sw = w * 0.72f
         val sh = h * 0.72f
         val ox = w * 0.14f
         val oy = h * 0.14f
 
-        // Letra A (Verde azulado)
         val pathA = Path().apply {
             moveTo(ox + sw * 0.11f, oy + sh * 0.59f)
             lineTo(ox + sw * 0.28f, oy + sh * 0.12f)
@@ -159,7 +115,6 @@ fun ApexBidLogo(size: Dp = 40.dp) {
         }
         drawPath(path = pathA, color = Color(0xFF2D8A78))
 
-        // Fusión y Puente de transición
         val pathBridge = Path().apply {
             moveTo(ox + sw * 0.16f, oy + sh * 0.45f)
             lineTo(ox + sw * 0.36f, oy + sh * 0.45f)
@@ -179,7 +134,6 @@ fun ApexBidLogo(size: Dp = 40.dp) {
         }
         drawPath(path = pathBridge, color = Color(0xFF2D8A78))
 
-        // Estructura Letra B (Blanca)
         val pathB = Path().apply {
             moveTo(ox + sw * 0.48f, oy + sh * 0.12f)
             lineTo(ox + sw * 0.70f, oy + sh * 0.12f)
@@ -192,13 +146,11 @@ fun ApexBidLogo(size: Dp = 40.dp) {
         }
         drawPath(path = pathB, color = Color.White)
 
-        // Huecos internos de la B
         drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.138f), Size(sw * 0.09f, sh * 0.032f), CornerRadius(2f, 2f))
         drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.275f), Size(sw * 0.10f, sh * 0.055f), CornerRadius(2f, 2f))
         drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.405f), Size(sw * 0.11f, sh * 0.035f), CornerRadius(2f, 2f))
         drawRoundRect(Color(0xFF145A72), Offset(ox + sw * 0.59f, oy + sh * 0.508f), Size(sw * 0.10f, sh * 0.032f), CornerRadius(2f, 2f))
 
-        // Celdas de Cuadrícula / Datos simulados en Estimado
         drawRect(Color(0xFF2D8A78), Offset(ox + sw * 0.60f, oy + sh * 0.145f), Size(sw * 0.045f, sh * 0.05f))
         drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.668f, oy + sh * 0.145f), Size(sw * 0.037f, sh * 0.05f))
 
@@ -212,6 +164,184 @@ fun ApexBidLogo(size: Dp = 40.dp) {
 
         drawRect(Color(0xFF2D8A78), Offset(ox + sw * 0.60f, oy + sh * 0.488f), Size(sw * 0.045f, sh * 0.04f))
         drawRect(Color(0xFF7BA4B3), Offset(ox + sw * 0.668f, oy + sh * 0.488f), Size(sw * 0.047f, sh * 0.04f))
+    }
+}
+
+@Composable
+fun ApexBidApp(db: AppDatabase) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isTabletLandscape = configuration.screenWidthDp >= 600
+
+    var tab by remember { mutableStateOf(0) }
+    var settings by remember { mutableStateOf(EstimateSettings.load(context)) }
+    val clients by db.clientDao().observeAll().collectAsStateWithLifecycle(emptyList())
+    val quotes by db.quoteDao().observeAll().collectAsStateWithLifecycle(emptyList())
+    val scope = rememberCoroutineScope()
+
+    val navItems = listOf(
+        Triple("Inicio", Icons.Filled.Home, 0),
+        Triple("Business", Icons.Filled.BarChart, 1),
+        Triple("Clientes", Icons.Filled.People, 2),
+        Triple("Cotizar", Icons.Filled.Calculate, 3),
+        Triple("Historial", Icons.Filled.History, 4),
+        Triple("Ajustes", Icons.Filled.Settings, 5)
+    )
+
+    val mainContent: @Composable (Modifier) -> Unit = { contentModifier ->
+        Column(
+            contentModifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (!isTabletLandscape) {
+                    ApexBidLogo(size = 38.dp)
+                }
+                Column {
+                    Text(
+                        text = settings.brandName.ifBlank { "ApexBid" },
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Electrical Estimates & Invoices · Servicios Eléctricos",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+
+            when (tab) {
+                0 -> HomeScreen(clients.size, quotes, isTabletLandscape) { tab = 3 }
+                1 -> BusinessOverviewScreen(quotes, isTabletLandscape)
+                2 -> ClientsScreen(
+                    clients = clients,
+                    isTablet = isTabletLandscape,
+                    onSave = { name, phone, email, address ->
+                        scope.launch {
+                            db.clientDao().insert(ClientEntity(name = name, phone = phone, email = email, address = address))
+                        }
+                    },
+                    onDelete = { client ->
+                        scope.launch { db.clientDao().delete(client) }
+                    }
+                )
+                3 -> QuoteScreen(clients, settings, isTabletLandscape) { q ->
+                    scope.launch {
+                        db.quoteDao().insert(q)
+                        Toast.makeText(context, "Cotización guardada", Toast.LENGTH_SHORT).show()
+                        tab = 4
+                    }
+                }
+                4 -> HistoryScreen(
+                    quotes = quotes,
+                    onUpdateQuote = { updated ->
+                        scope.launch { db.quoteDao().update(updated) }
+                    },
+                    onExportPdf = { q, mode ->
+                        try {
+                            val generated = QuotePdf.create(
+                                context = context,
+                                quote = q,
+                                companyLicense = settings.companyLicense,
+                                companyPhone = settings.companyPhone,
+                                brandName = settings.brandName
+                            )
+                            Toast.makeText(context, "PDF guardado: ${generated.fileName}", Toast.LENGTH_SHORT).show()
+                            when (mode) {
+                                "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q, settings.brandName)
+                                "email" -> sendQuoteByEmail(context, q, generated.uri, settings.brandName)
+                                "sms" -> sendQuoteBySms(context, q, settings.brandName)
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                )
+                5 -> SettingsScreen(
+                    settings = settings,
+                    onSave = { updated ->
+                        settings = updated
+                        updated.save(context)
+                        Toast.makeText(context, "Configuración guardada", Toast.LENGTH_SHORT).show()
+                    },
+                    onExportBackup = { uri ->
+                        scope.launch {
+                            try {
+                                exportDatabaseJson(context, db, uri)
+                                Toast.makeText(context, "Respaldo exportado correctamente", Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error al exportar respaldo: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    onImportBackup = { uri ->
+                        scope.launch {
+                            try {
+                                val count = importDatabaseJson(context, db, uri)
+                                Toast.makeText(context, "Respaldo importado ($count registros)", Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error al importar respaldo: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    if (isTabletLandscape) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Row(Modifier.fillMaxSize()) {
+                NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    header = {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        ) {
+                            ApexBidLogo(size = 42.dp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("ApexBid", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                ) {
+                    navItems.forEach { (label, icon, index) ->
+                        NavigationRailItem(
+                            selected = tab == index,
+                            onClick = { tab = index },
+                            icon = { Icon(icon, contentDescription = label) },
+                            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        )
+                    }
+                }
+                VerticalDivider()
+                mainContent(Modifier.weight(1f))
+            }
+        }
+    } else {
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    navItems.forEach { (label, icon, index) ->
+                        NavigationBarItem(
+                            selected = tab == index,
+                            onClick = { tab = index },
+                            icon = { Icon(icon, contentDescription = label) },
+                            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        )
+                    }
+                }
+            }
+        ) { padding ->
+            mainContent(Modifier.padding(padding))
+        }
     }
 }
 
