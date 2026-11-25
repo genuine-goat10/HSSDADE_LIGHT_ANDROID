@@ -215,6 +215,9 @@ fun ApexBidLogo(size: Dp = 40.dp) {
     }
 }
 
+@Composable
+fun ApexBidApp(db: AppDatabase) {
+
     if (isTabletLandscape) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Row(Modifier.fillMaxSize()) {
