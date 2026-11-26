@@ -1,14 +1,21 @@
 package com.hssdade.light
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.CalendarContract
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -200,15 +207,17 @@ fun ApexBidApp(db: AppDatabase) {
     var settings by remember { mutableStateOf(EstimateSettings.load(context)) }
     val clients by db.clientDao().observeAll().collectAsStateWithLifecycle(emptyList())
     val quotes by db.quoteDao().observeAll().collectAsStateWithLifecycle(emptyList())
+    val appointments by db.appointmentDao().observeAll().collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
 
     val navItems = listOf(
         Triple("Inicio", Icons.Filled.Home, 0),
-        Triple("Business", Icons.Filled.BarChart, 1),
-        Triple("Clientes", Icons.Filled.People, 2),
-        Triple("Cotizar", Icons.Filled.Calculate, 3),
-        Triple("Historial", Icons.Filled.History, 4),
-        Triple("Ajustes", Icons.Filled.Settings, 5)
+        Triple("Agenda", Icons.Filled.EventNote, 1),
+        Triple("Business", Icons.Filled.BarChart, 2),
+        Triple("Clientes", Icons.Filled.People, 3),
+        Triple("Cotizar", Icons.Filled.Calculate, 4),
+        Triple("Historial", Icons.Filled.History, 5),
+        Triple("Ajustes", Icons.Filled.Settings, 6)
     )
 
     val mainContent: @Composable (Modifier) -> Unit = { contentModifier ->
@@ -241,9 +250,35 @@ fun ApexBidApp(db: AppDatabase) {
             Spacer(Modifier.height(12.dp))
 
             when (tab) {
-                0 -> HomeScreen(clients.size, quotes, isTabletLandscape) { tab = 3 }
-                1 -> BusinessOverviewScreen(quotes, isTabletLandscape)
-                2 -> ClientsScreen(
+                0 -> HomeScreen(
+                    clientCount = clients.size,
+                    quotes = quotes,
+                    appointments = appointments,
+                    isTablet = isTabletLandscape,
+                    onNew = { tab = 4 },
+                    onOpenAgenda = { tab = 1 }
+                )
+                1 -> ScheduleAndRoutesScreen(
+                    appointments = appointments,
+                    clients = clients,
+                    quotes = quotes,
+                    settings = settings,
+                    isTablet = isTabletLandscape,
+                    onSaveAppointment = { appt ->
+                        scope.launch {
+                            db.appointmentDao().insert(appt)
+                            Toast.makeText(context, "Cita programada", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onUpdateAppointment = { appt ->
+                        scope.launch { db.appointmentDao().update(appt) }
+                    },
+                    onDeleteAppointment = { appt ->
+                        scope.launch { db.appointmentDao().delete(appt) }
+                    }
+                )
+                2 -> BusinessOverviewScreen(quotes, isTabletLandscape)
+                3 -> ClientsScreen(
                     clients = clients,
                     isTablet = isTabletLandscape,
                     onSave = { name, phone, email, address ->
@@ -262,14 +297,14 @@ fun ApexBidApp(db: AppDatabase) {
                         scope.launch { db.clientDao().delete(client) }
                     }
                 )
-                3 -> QuoteScreen(clients, settings, isTabletLandscape) { q ->
+                4 -> QuoteScreen(clients, settings, isTabletLandscape) { q ->
                     scope.launch {
                         db.quoteDao().insert(q)
                         Toast.makeText(context, "Cotización guardada", Toast.LENGTH_SHORT).show()
-                        tab = 4
+                        tab = 5
                     }
                 }
-                4 -> HistoryScreen(
+                5 -> HistoryScreen(
                     quotes = quotes,
                     onUpdateQuote = { updated ->
                         scope.launch { db.quoteDao().update(updated) }
@@ -294,7 +329,7 @@ fun ApexBidApp(db: AppDatabase) {
                         }
                     }
                 )
-                5 -> SettingsScreen(
+                6 -> SettingsScreen(
                     settings = settings,
                     onSave = { updated ->
                         settings = updated
@@ -527,6 +562,169 @@ private fun openInGoogleMaps(context: Context, address: String) {
     }
 }
 
+private fun callPhoneNumber(context: Context, phone: String) {
+    val digits = phone.filter { it.isDigit() }
+    if (digits.isEmpty()) {
+        Toast.makeText(context, "Este cliente no tiene teléfono guardado", Toast.LENGTH_SHORT).show()
+        return
+    }
+    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$digits"))
+    context.startActivity(intent)
+}
+
+private fun addAppointmentToSystemCalendar(context: Context, appt: AppointmentEntity, brandName: String) {
+    val brand = brandName.ifBlank { "ApexBid" }
+    val endMillis = appt.scheduledAt + appt.durationMinutes * 60_000L
+    val desc = buildString {
+        append("Trabajo: ${appt.workSummary}\n")
+        if (appt.clientPhone.isNotBlank()) append("Teléfono: ${appt.clientPhone}\n")
+        if (appt.notes.isNotBlank()) append("Notas: ${appt.notes}\n")
+        append("Organizado con $brand")
+    }
+    val intent = Intent(Intent.ACTION_INSERT).apply {
+        data = CalendarContract.Events.CONTENT_URI
+        putExtra(CalendarContract.Events.TITLE, "[$brand] ${appt.clientName}")
+        putExtra(CalendarContract.Events.EVENT_LOCATION, appt.clientAddress)
+        putExtra(CalendarContract.Events.DESCRIPTION, desc)
+        putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, appt.scheduledAt)
+        putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
+    }
+    try {
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        Toast.makeText(context, "No se encontró aplicación de Calendario", Toast.LENGTH_SHORT).show()
+    }
+}
+
+@SuppressLint("MissingPermission")
+private fun getCurrentDeviceLatLng(context: Context): Pair<Double, Double>? {
+    val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    if (!fineGranted && !coarseGranted) return null
+
+    return try {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        var best: Location? = null
+        for (p in providers) {
+            val loc = try { lm.getLastKnownLocation(p) } catch (_: Exception) { null }
+            if (loc != null && (best == null || loc.accuracy < best.accuracy)) {
+                best = loc
+            }
+        }
+        if (best != null) best.latitude to best.longitude else null
+    } catch (_: Exception) {
+        null
+    }
+}
+
+@Suppress("DEPRECATION")
+private suspend fun optimizeAppointmentsRoute(
+    context: Context,
+    dayAppointments: List<AppointmentEntity>,
+    useCurrentGps: Boolean,
+    customOriginAddress: String
+): List<AppointmentEntity> = withContext(Dispatchers.IO) {
+    val withAddress = dayAppointments.filter { it.clientAddress.isNotBlank() }
+    if (withAddress.isEmpty()) return@withContext emptyList()
+
+    val geocoder = if (Geocoder.isPresent()) Geocoder(context, Locale.getDefault()) else null
+
+    fun geocodeAddress(addr: String): Pair<Double, Double>? {
+        if (geocoder == null || addr.isBlank()) return null
+        return try {
+            val list = geocoder.getFromLocationName(addr, 1)
+            val first = list?.firstOrNull()
+            if (first != null) first.latitude to first.longitude else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    val startCoords: Pair<Double, Double>? = if (useCurrentGps) {
+        getCurrentDeviceLatLng(context) ?: geocodeAddress(customOriginAddress)
+    } else {
+        geocodeAddress(customOriginAddress) ?: getCurrentDeviceLatLng(context)
+    }
+
+    if (startCoords == null || geocoder == null) {
+        return@withContext withAddress.sortedBy { it.scheduledAt }
+    }
+
+    data class GeoNode(val appt: AppointmentEntity, val coords: Pair<Double, Double>?)
+
+    val nodes = withAddress.map { GeoNode(it, geocodeAddress(it.clientAddress)) }
+    val unvisited = nodes.toMutableList()
+    val ordered = mutableListOf<AppointmentEntity>()
+    var currentLat = startCoords.first
+    var currentLng = startCoords.second
+
+    while (unvisited.isNotEmpty()) {
+        val next = unvisited.minByOrNull { node ->
+            val c = node.coords
+            if (c == null) {
+                Double.MAX_VALUE / 2.0
+            } else {
+                val results = FloatArray(1)
+                Location.distanceBetween(currentLat, currentLng, c.first, c.second, results)
+                results[0].toDouble()
+            }
+        } ?: break
+
+        unvisited.remove(next)
+        ordered.add(next.appt)
+        if (next.coords != null) {
+            currentLat = next.coords.first
+            currentLng = next.coords.second
+        }
+    }
+
+    ordered
+}
+
+private fun launchMultiStopGoogleMapsRoute(
+    context: Context,
+    orderedStops: List<AppointmentEntity>,
+    useCurrentGps: Boolean,
+    customOriginAddress: String
+) {
+    if (orderedStops.isEmpty()) {
+        Toast.makeText(context, "No hay citas con dirección para este día", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val addresses = orderedStops.map { it.clientAddress.trim() }.filter { it.isNotEmpty() }
+    if (addresses.isEmpty()) return
+
+    val destination = Uri.encode(addresses.last())
+    val waypoints = if (addresses.size > 1) {
+        addresses.dropLast(1).joinToString("|") { Uri.encode(it) }
+    } else {
+        ""
+    }
+
+    val url = buildString {
+        append("https://www.google.com/maps/dir/?api=1")
+        if (!useCurrentGps && customOriginAddress.isNotBlank()) {
+            append("&origin=${Uri.encode(customOriginAddress.trim())}")
+        }
+        append("&destination=$destination")
+        if (waypoints.isNotEmpty()) {
+            append("&waypoints=$waypoints")
+        }
+        append("&travelmode=driving")
+    }
+
+    val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+        setPackage("com.google.android.apps.maps")
+    }
+    try {
+        context.startActivity(mapIntent)
+    } catch (_: Exception) {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+}
+
 private fun sharePdfGeneral(context: Context, uri: Uri, quote: QuoteEntity, brandName: String) {
     val brand = brandName.ifBlank { "ApexBid" }
     val intent = Intent(Intent.ACTION_SEND).apply {
@@ -590,6 +788,7 @@ private fun sendQuoteBySms(context: Context, quote: QuoteEntity, brandName: Stri
 private suspend fun exportDatabaseJson(context: Context, db: AppDatabase, uri: Uri) = withContext(Dispatchers.IO) {
     val clients = db.clientDao().getAllOnce()
     val quotes = db.quoteDao().getAllOnce()
+    val appointments = db.appointmentDao().getAllOnce()
 
     val root = JSONObject()
     root.put("app", "ApexBid")
@@ -615,6 +814,16 @@ private suspend fun exportDatabaseJson(context: Context, db: AppDatabase, uri: U
         })
     }
     root.put("quotes", quotesArr)
+
+    val apptsArr = JSONArray()
+    appointments.forEach { a ->
+        apptsArr.put(JSONObject().apply {
+            put("clientName", a.clientName); put("clientPhone", a.clientPhone); put("clientAddress", a.clientAddress)
+            put("workSummary", a.workSummary); put("notes", a.notes); put("scheduledAt", a.scheduledAt)
+            put("durationMinutes", a.durationMinutes); put("routeOrder", a.routeOrder); put("status", a.status)
+        })
+    }
+    root.put("appointments", apptsArr)
 
     context.contentResolver.openOutputStream(uri)?.use { out ->
         out.write(root.toString(2).toByteArray(Charsets.UTF_8))
@@ -665,22 +874,61 @@ private suspend fun importDatabaseJson(context: Context, db: AppDatabase, uri: U
         )
         imported++
     }
+
+    val apptsArr = root.optJSONArray("appointments") ?: JSONArray()
+    for (i in 0 until apptsArr.length()) {
+        val obj = apptsArr.getJSONObject(i)
+        db.appointmentDao().insert(
+            AppointmentEntity(
+                clientName = obj.optString("clientName"),
+                clientPhone = formatUsPhoneInput(obj.optString("clientPhone")),
+                clientAddress = obj.optString("clientAddress"),
+                workSummary = obj.optString("workSummary"),
+                notes = obj.optString("notes"),
+                scheduledAt = obj.optLong("scheduledAt", System.currentTimeMillis()),
+                durationMinutes = obj.optInt("durationMinutes", 60),
+                routeOrder = obj.optInt("routeOrder", 0),
+                status = obj.optString("status", "Programada")
+            )
+        )
+        imported++
+    }
+
     imported
 }
 
+private fun isSameCalendarDay(ts1: Long, ts2: Long): Boolean {
+    val c1 = Calendar.getInstance().apply { timeInMillis = ts1 }
+    val c2 = Calendar.getInstance().apply { timeInMillis = ts2 }
+    return c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR) &&
+        c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
+}
+
 @Composable
-fun HomeScreen(clientCount: Int, quotes: List<QuoteEntity>, isTablet: Boolean, onNew: () -> Unit) {
+fun HomeScreen(
+    clientCount: Int,
+    quotes: List<QuoteEntity>,
+    appointments: List<AppointmentEntity>,
+    isTablet: Boolean,
+    onNew: () -> Unit,
+    onOpenAgenda: () -> Unit
+) {
     val money = NumberFormat.getCurrencyInstance(Locale.US)
+    val timeFmt = remember { SimpleDateFormat("hh:mm a", Locale.US) }
     val pending = quotes.count { it.status == "Pendiente" }
     val approved = quotes.count { it.status == "Aprobada" }
     val invoiced = quotes.count { it.status == "Facturada" }
     val invoicedTotal = quotes.filter { it.status == "Facturada" }.sumOf { it.total }
+    val todayAppts = remember(appointments) {
+        val now = System.currentTimeMillis()
+        appointments.filter { isSameCalendarDay(it.scheduledAt, now) }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Panel principal", style = MaterialTheme.typography.titleLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCard("Clientes", clientCount.toString(), Modifier.weight(1f))
-            StatCard("Cotizaciones", quotes.size.toString(), Modifier.weight(1f))
+            StatCard("Citas Hoy", todayAppts.size.toString(), Modifier.weight(1f))
             if (isTablet) {
                 StatCard("Total Facturado", money.format(invoicedTotal), Modifier.weight(1.3f))
             }
@@ -706,10 +954,37 @@ fun HomeScreen(clientCount: Int, quotes: List<QuoteEntity>, isTablet: Boolean, o
                 }
             }
         }
-        Button(onClick = onNew, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Filled.Add, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("Crear cotización / New estimate")
+
+        if (todayAppts.isNotEmpty()) {
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f))
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Próximas visitas de hoy", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    todayAppts.take(3).forEach { a ->
+                        Text(
+                            "• ${timeFmt.format(Date(a.scheduledAt))} — ${a.clientName} (${a.workSummary})",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onNew, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Cotizar", maxLines = 1)
+            }
+            OutlinedButton(onClick = onOpenAgenda, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.Route, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Agenda y Ruta", maxLines = 1)
+            }
         }
         Text("Modo local activo. Datos almacenados de forma segura en este dispositivo.", style = MaterialTheme.typography.bodySmall)
     }
@@ -723,6 +998,582 @@ fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
             Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScheduleAndRoutesScreen(
+    appointments: List<AppointmentEntity>,
+    clients: List<ClientEntity>,
+    quotes: List<QuoteEntity>,
+    settings: EstimateSettings,
+    isTablet: Boolean,
+    onSaveAppointment: (AppointmentEntity) -> Unit,
+    onUpdateAppointment: (AppointmentEntity) -> Unit,
+    onDeleteAppointment: (AppointmentEntity) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val dayNameFmt = remember { SimpleDateFormat("EEE", Locale("es", "ES")) }
+    val dayNumFmt = remember { SimpleDateFormat("dd", Locale.US) }
+    val fullDateFmt = remember { SimpleDateFormat("EEEE dd MMM, yyyy", Locale("es", "ES")) }
+    val timeFmt = remember { SimpleDateFormat("hh:mm a", Locale.US) }
+
+    var weekOffset by remember { mutableStateOf(0) }
+    var selectedDayMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    var showNewDialog by remember { mutableStateOf(false) }
+
+    // Estado del asistente de ruta
+    var useCurrentGps by remember { mutableStateOf(true) }
+    var customStartAddress by remember { mutableStateOf(settings.defaultStartAddress) }
+    var isOptimizingRoute by remember { mutableStateOf(false) }
+
+    LaunchedEffect(settings.defaultStartAddress) {
+        if (customStartAddress.isBlank() && settings.defaultStartAddress.isNotBlank()) {
+            customStartAddress = settings.defaultStartAddress
+        }
+    }
+
+    val weekDays = remember(weekOffset) {
+        val cal = Calendar.getInstance().apply {
+            firstDayOfWeek = Calendar.MONDAY
+            add(Calendar.WEEK_OF_YEAR, weekOffset)
+            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+            set(Calendar.HOUR_OF_DAY, 9)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        (0..6).map { offset ->
+            val c = (cal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, offset) }
+            c.timeInMillis
+        }
+    }
+
+    val dayAppointments = remember(appointments, selectedDayMillis) {
+        appointments
+            .filter { isSameCalendarDay(it.scheduledAt, selectedDayMillis) }
+            .sortedWith(compareBy({ if (it.routeOrder > 0) it.routeOrder else Int.MAX_VALUE }, { it.scheduledAt }))
+    }
+
+    if (showNewDialog) {
+        NewAppointmentDialog(
+            initialDateMillis = selectedDayMillis,
+            clients = clients,
+            quotes = quotes,
+            onDismiss = { showNewDialog = false },
+            onSave = { newAppt ->
+                onSaveAppointment(newAppt)
+                selectedDayMillis = newAppt.scheduledAt
+                showNewDialog = false
+            }
+        )
+    }
+
+    val agendaHeaderAndRoutePanel: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Agenda Semanal y Rutas", style = MaterialTheme.typography.titleLarge)
+                Button(
+                    onClick = { showNewDialog = true },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Nueva Cita")
+                }
+            }
+
+            // Navegación de semana
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { weekOffset-- }) {
+                    Icon(Icons.Filled.ChevronLeft, contentDescription = "Semana anterior")
+                }
+                Text(
+                    text = fullDateFmt.format(Date(selectedDayMillis)).replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = { weekOffset++ }) {
+                    Icon(Icons.Filled.ChevronRight, contentDescription = "Semana siguiente")
+                }
+            }
+
+            // Selector de los 7 días de la semana
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                weekDays.forEach { dayMs ->
+                    val isSelected = isSameCalendarDay(dayMs, selectedDayMillis)
+                    val count = appointments.count { isSameCalendarDay(it.scheduledAt, dayMs) }
+                    val bgColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    val textColor = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(bgColor, RoundedCornerShape(10.dp))
+                            .clickable { selectedDayMillis = dayMs }
+                            .padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = dayNameFmt.format(Date(dayMs)).take(3).uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = textColor
+                        )
+                        Text(
+                            text = dayNumFmt.format(Date(dayMs)),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor
+                        )
+                        if (count > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 2.dp)
+                                    .background(
+                                        if (isSelected) Color.White else Color(0xFF2D8A78),
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "$count",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White
+                                )
+                            }
+                        } else {
+                            Spacer(Modifier.height(16.dp))
+                        }
+                    }
+                }
+            }
+
+            // Asistente de Ruta Automática desde Punto de Partida
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Text("Asistente de Ruta Automática del Día", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = useCurrentGps,
+                            onClick = { useCurrentGps = true },
+                            label = { Text("Desde mi GPS actual") },
+                            leadingIcon = { Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                        FilterChip(
+                            selected = !useCurrentGps,
+                            onClick = { useCurrentGps = false },
+                            label = { Text("Dirección de salida") },
+                            leadingIcon = { Icon(Icons.Filled.HomeWork, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                    }
+
+                    if (!useCurrentGps) {
+                        OutlinedTextField(
+                            value = customStartAddress,
+                            onValueChange = { customStartAddress = it },
+                            label = { Text("Punto de partida (Casa / Taller / Almacén)") },
+                            placeholder = { Text("Ej: 1234 W 49th St, Hialeah, FL") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            if (dayAppointments.none { it.clientAddress.isNotBlank() }) {
+                                Toast.makeText(context, "Agrega al menos una cita con dirección en este día", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            if (!useCurrentGps && customStartAddress.isBlank()) {
+                                Toast.makeText(context, "Escribe la dirección del punto de partida", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            isOptimizingRoute = true
+                            scope.launch {
+                                val optimized = optimizeAppointmentsRoute(
+                                    context = context,
+                                    dayAppointments = dayAppointments,
+                                    useCurrentGps = useCurrentGps,
+                                    customOriginAddress = customStartAddress
+                                )
+                                optimized.forEachIndexed { idx, appt ->
+                                    onUpdateAppointment(appt.copy(routeOrder = idx + 1))
+                                }
+                                isOptimizingRoute = false
+                                Toast.makeText(context, "Ruta optimizada (${optimized.size} paradas)", Toast.LENGTH_SHORT).show()
+                                launchMultiStopGoogleMapsRoute(
+                                    context = context,
+                                    orderedStops = optimized,
+                                    useCurrentGps = useCurrentGps,
+                                    customOriginAddress = customStartAddress
+                                )
+                            }
+                        },
+                        enabled = !isOptimizingRoute && dayAppointments.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Filled.Directions, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (isOptimizingRoute) "Calculando ruta óptima..."
+                            else "Crear Ruta Automática (${dayAppointments.count { it.clientAddress.isNotBlank() }} paradas)"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    val dayAppointmentsList: @Composable () -> Unit = {
+        if (dayAppointments.isEmpty()) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Filled.EventAvailable, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                    Text("Sin citas programadas este día", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text("Pulsa 'Nueva Cita' para agendar un cliente o cotización.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(dayAppointments, key = { it.id }) { appt ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (appt.routeOrder > 0) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "Parada #${appt.routeOrder}",
+                                                color = Color.White,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "${timeFmt.format(Date(appt.scheduledAt))} (${appt.durationMinutes} min)",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2D8A78)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onDeleteAppointment(appt) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar cita", modifier = Modifier.size(18.dp))
+                                }
+                            }
+
+                            Text(appt.clientName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(appt.workSummary, style = MaterialTheme.typography.bodyMedium)
+
+                            if (appt.clientAddress.isNotBlank()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { openInGoogleMaps(context, appt.clientAddress) }
+                                ) {
+                                    Icon(Icons.Filled.LocationOn, contentDescription = null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(appt.clientAddress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+
+                            if (appt.notes.isNotBlank()) {
+                                Text("Nota: ${appt.notes}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("Programada", "En camino", "Completada").forEach { st ->
+                                    FilterChip(
+                                        selected = appt.status == st,
+                                        onClick = { onUpdateAppointment(appt.copy(status = st)) },
+                                        label = { Text(st, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = { callPhoneNumber(context, appt.clientPhone) },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Filled.Phone, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Llamar", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                                }
+                                OutlinedButton(
+                                    onClick = { openInGoogleMaps(context, appt.clientAddress) },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Filled.Map, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Mapa", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                                }
+                                FilledTonalButton(
+                                    onClick = { addAppointmentToSystemCalendar(context, appt, settings.brandName) },
+                                    modifier = Modifier.weight(1.2f),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Filled.Event, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Calendario", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (isTablet) {
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Box(Modifier.weight(1f).verticalScroll(rememberScrollState())) { agendaHeaderAndRoutePanel() }
+            VerticalDivider()
+            Box(Modifier.weight(1.2f)) { dayAppointmentsList() }
+        }
+    } else {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            agendaHeaderAndRoutePanel()
+            Box(Modifier.weight(1f)) { dayAppointmentsList() }
+        }
+    }
+}
+
+@Composable
+fun NewAppointmentDialog(
+    initialDateMillis: Long,
+    clients: List<ClientEntity>,
+    quotes: List<QuoteEntity>,
+    onDismiss: () -> Unit,
+    onSave: (AppointmentEntity) -> Unit
+) {
+    val context = LocalContext.current
+    val cal = remember(initialDateMillis) {
+        Calendar.getInstance().apply {
+            timeInMillis = initialDateMillis
+            if (get(Calendar.HOUR_OF_DAY) < 7) {
+                set(Calendar.HOUR_OF_DAY, 9)
+                set(Calendar.MINUTE, 0)
+            }
+        }
+    }
+
+    var year by remember { mutableStateOf(cal.get(Calendar.YEAR)) }
+    var month by remember { mutableStateOf(cal.get(Calendar.MONTH)) }
+    var day by remember { mutableStateOf(cal.get(Calendar.DAY_OF_MONTH)) }
+    var hour by remember { mutableStateOf(cal.get(Calendar.HOUR_OF_DAY)) }
+    var minute by remember { mutableStateOf(cal.get(Calendar.MINUTE)) }
+
+    var clientName by remember { mutableStateOf("") }
+    var clientPhone by remember { mutableStateOf("") }
+    var clientAddress by remember { mutableStateOf("") }
+    var workSummary by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
+    var durationStr by remember { mutableStateOf("60") }
+
+    var clientMenuExpanded by remember { mutableStateOf(false) }
+    var quoteMenuExpanded by remember { mutableStateOf(false) }
+
+    val dateLabel = remember(year, month, day) {
+        val c = Calendar.getInstance().apply { set(year, month, day) }
+        SimpleDateFormat("MM/dd/yyyy", Locale.US).format(c.time)
+    }
+    val timeLabel = remember(hour, minute) {
+        val c = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, hour); set(Calendar.MINUTE, minute) }
+        SimpleDateFormat("hh:mm a", Locale.US).format(c.time)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Programar Cita / New Appointment") },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (clients.isNotEmpty()) {
+                    Box {
+                        OutlinedButton(onClick = { clientMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Vincular cliente guardado")
+                        }
+                        DropdownMenu(expanded = clientMenuExpanded, onDismissRequest = { clientMenuExpanded = false }) {
+                            clients.forEach { c ->
+                                DropdownMenuItem(
+                                    text = { Text("${c.name} · ${c.address}") },
+                                    onClick = {
+                                        clientName = c.name
+                                        clientPhone = c.phone.filter { it.isDigit() }.take(10)
+                                        clientAddress = c.address
+                                        clientMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (quotes.isNotEmpty()) {
+                    Box {
+                        OutlinedButton(onClick = { quoteMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Vincular desde cotización existente")
+                        }
+                        DropdownMenu(expanded = quoteMenuExpanded, onDismissRequest = { quoteMenuExpanded = false }) {
+                            quotes.take(15).forEach { q ->
+                                DropdownMenuItem(
+                                    text = { Text("${q.clientName} — ${q.serviceName.take(35)}") },
+                                    onClick = {
+                                        clientName = q.clientName
+                                        clientPhone = q.clientPhone.filter { it.isDigit() }.take(10)
+                                        clientAddress = q.clientAddress
+                                        workSummary = q.serviceName
+                                        quoteMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            DatePickerDialog(context, { _, y, m, d ->
+                                year = y; month = m; day = d
+                            }, year, month, day).show()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Filled.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(dateLabel)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            TimePickerDialog(context, { _, h, min ->
+                                hour = h; minute = min
+                            }, hour, minute, false).show()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Filled.AccessTime, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(timeLabel)
+                    }
+                }
+
+                OutlinedTextField(
+                    value = clientName,
+                    onValueChange = { clientName = it },
+                    label = { Text("Nombre del cliente") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = clientPhone,
+                    onValueChange = { clientPhone = it.filter { c -> c.isDigit() }.take(10) },
+                    label = { Text("Teléfono (XXX) XXX-XXXX") },
+                    visualTransformation = UsPhoneVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = clientAddress,
+                    onValueChange = { clientAddress = it },
+                    label = { Text("Dirección exacta (para ruta GPS)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = workSummary,
+                    onValueChange = { workSummary = it },
+                    label = { Text("Trabajo a realizar") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = durationStr,
+                        onValueChange = { durationStr = it.filter { c -> c.isDigit() }.take(3) },
+                        label = { Text("Duración (min)") },
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Notas / Gate code") },
+                        modifier = Modifier.weight(1.4f),
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val scheduledCal = Calendar.getInstance().apply {
+                        set(year, month, day, hour, minute, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    onSave(
+                        AppointmentEntity(
+                            clientName = clientName.trim(),
+                            clientPhone = formatUsPhoneInput(clientPhone),
+                            clientAddress = clientAddress.trim(),
+                            workSummary = workSummary.trim().ifBlank { "Visita técnica eléctrica" },
+                            notes = notes.trim(),
+                            scheduledAt = scheduledCal.timeInMillis,
+                            durationMinutes = durationStr.toIntOrNull()?.coerceAtLeast(15) ?: 60
+                        )
+                    )
+                },
+                enabled = clientName.isNotBlank()
+            ) { Text("Guardar Cita") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
 }
 
 @Composable
@@ -1771,7 +2622,8 @@ data class EstimateSettings(
     val applyMinimumVisit: Boolean = false,
     val companyLicense: String = "",
     val companyPhone: String = "",
-    val brandName: String = "ApexBid"
+    val brandName: String = "ApexBid",
+    val defaultStartAddress: String = ""
 ) {
     val hourlyOperatingCost: Double
         get() = (electricianHourly + helperHourly) * (1.0 + reservePercent / 100.0) + overheadHourly
@@ -1788,6 +2640,7 @@ data class EstimateSettings(
             .putString("company_license", companyLicense)
             .putString("company_phone", formatUsPhoneInput(companyPhone))
             .putString("brand_name", brandName)
+            .putString("default_start_address", defaultStartAddress)
             .apply()
     }
 
@@ -1805,7 +2658,8 @@ data class EstimateSettings(
                 applyMinimumVisit = p.getBoolean("apply_minimum", false),
                 companyLicense = p.getString("company_license", "") ?: "",
                 companyPhone = formatUsPhoneInput(p.getString("company_phone", "") ?: ""),
-                brandName = p.getString("brand_name", "ApexBid") ?: "ApexBid"
+                brandName = p.getString("brand_name", "ApexBid") ?: "ApexBid",
+                defaultStartAddress = p.getString("default_start_address", "") ?: ""
             )
         }
     }
@@ -1829,6 +2683,7 @@ fun SettingsScreen(
     var license by remember(settings) { mutableStateOf(settings.companyLicense) }
     var compPhone by remember(settings) { mutableStateOf(settings.companyPhone.filter { it.isDigit() }.take(10)) }
     var brandName by remember(settings) { mutableStateOf(settings.brandName) }
+    var defaultStartAddress by remember(settings) { mutableStateOf(settings.defaultStartAddress) }
     var permissionCheckTrigger by remember { mutableStateOf(0) }
 
     val permissionsLauncher = rememberLauncherForActivityResult(
@@ -1905,7 +2760,7 @@ fun SettingsScreen(
             }
             "v${pInfo.versionName} (Build $code)"
         } catch (ex: Exception) {
-            "v0.8.0"
+            "v0.9.0"
         }
     }
 
@@ -1954,6 +2809,14 @@ fun SettingsScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     singleLine = true
                 )
+                OutlinedTextField(
+                    value = defaultStartAddress,
+                    onValueChange = { defaultStartAddress = it },
+                    label = { Text("Dirección base de salida (para rutas diarias)") },
+                    placeholder = { Text("Ej: Casa, taller o almacén principal") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
             }
         }
 
@@ -1970,7 +2833,7 @@ fun SettingsScreen(
                     Text("Control transparente y almacenamiento 100% local", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 }
                 Text(
-                    "Tus clientes, cotizaciones, fotos y firmas se almacenan únicamente dentro de este dispositivo. Los permisos se usan exclusivamente cuando ejecutas una acción:",
+                    "Tus clientes, citas, cotizaciones, fotos y firmas se almacenan únicamente dentro de este dispositivo. Los permisos se usan exclusivamente cuando ejecutas una acción:",
                     style = MaterialTheme.typography.bodySmall
                 )
 
@@ -1986,7 +2849,7 @@ fun SettingsScreen(
                 )
                 PermissionStatusRow(
                     title = "Ubicación",
-                    purpose = "Verificar direcciones de trabajo en Google Maps.",
+                    purpose = "Optimizar rutas diarias y verificar direcciones en Google Maps.",
                     granted = hasLocation
                 )
 
@@ -2048,7 +2911,8 @@ fun SettingsScreen(
                             e, h, r, o, m, min, applyMin,
                             license.trim(),
                             formatUsPhoneInput(compPhone),
-                            brandName.trim().ifBlank { "ApexBid" }
+                            brandName.trim().ifBlank { "ApexBid" },
+                            defaultStartAddress.trim()
                         )
                     )
                 }
@@ -2090,8 +2954,8 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("• Base de datos local Room v4 con fotos adjuntas", style = MaterialTheme.typography.bodySmall)
-                Text("• Asistente Home Depot (ES/EN), Google Lens y Redacción IA", style = MaterialTheme.typography.bodySmall)
+                Text("• Base de datos local Room v5 con Agenda Semanal y Rutas GPS", style = MaterialTheme.typography.bodySmall)
+                Text("• Asistente de ruta multi-parada, Home Depot (ES/EN) y Google Lens", style = MaterialTheme.typography.bodySmall)
                 Text("• Exportación PDF bilingüe con firma digital y evidencia fotográfica", style = MaterialTheme.typography.bodySmall)
             }
         }
