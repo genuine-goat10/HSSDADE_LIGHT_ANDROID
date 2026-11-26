@@ -51,9 +51,13 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
@@ -100,6 +104,45 @@ fun formatUsPhoneInput(raw: String): String {
         digits.length <= 3 -> "(${digits}"
         digits.length <= 6 -> "(${digits.substring(0, 3)}) ${digits.substring(3)}"
         else -> "(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6)}"
+    }
+}
+
+class UsPhoneVisualTransformation : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val digits = text.text.filter { it.isDigit() }.take(10)
+        val formatted = buildString {
+            for (i in digits.indices) {
+                if (i == 0) append('(')
+                if (i == 3) append(") ")
+                if (i == 6) append('-')
+                append(digits[i])
+            }
+        }
+
+        val offsetTranslator = object : OffsetMapping {
+            override fun originalToTransformed(offset: Int): Int {
+                val cleanOffset = offset.coerceIn(0, digits.length)
+                return when {
+                    digits.isEmpty() -> 0
+                    cleanOffset <= 3 -> cleanOffset + 1
+                    cleanOffset <= 6 -> cleanOffset + 3
+                    else -> cleanOffset + 4
+                }
+            }
+
+            override fun transformedToOriginal(offset: Int): Int {
+                return when {
+                    offset <= 1 -> 0
+                    offset <= 4 -> (offset - 1).coerceAtMost(digits.length)
+                    offset <= 6 -> 3.coerceAtMost(digits.length)
+                    offset <= 9 -> (offset - 3).coerceAtMost(digits.length)
+                    offset <= 10 -> 6.coerceAtMost(digits.length)
+                    else -> (offset - 4).coerceAtMost(digits.length)
+                }
+            }
+        }
+
+        return TransformedText(AnnotatedString(formatted), offsetTranslator)
     }
 }
 
@@ -888,8 +931,9 @@ fun ClientsScreen(
             )
             OutlinedTextField(
                 value = phone,
-                onValueChange = { phone = formatUsPhoneInput(it) },
+                onValueChange = { phone = it.filter { c -> c.isDigit() }.take(10) },
                 label = { Text("Teléfono (XXX) XXX-XXXX") },
+                visualTransformation = UsPhoneVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 singleLine = true
@@ -921,7 +965,7 @@ fun ClientsScreen(
             Button(
                 onClick = {
                     if (name.isNotBlank()) {
-                        onSave(name.trim(), phone.trim(), email.trim(), address.trim())
+                        onSave(name.trim(), phone, email.trim(), address.trim())
                         name = ""; phone = ""; email = ""; address = ""
                     }
                 },
@@ -1184,7 +1228,7 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
                             },
                             onClick = {
                                 client = c.name
-                                clientPhone = formatUsPhoneInput(c.phone)
+                                clientPhone = c.phone.filter { it.isDigit() }.take(10)
                                 clientEmail = c.email
                                 clientAddress = c.address
                                 clientExpanded = false
@@ -1197,8 +1241,9 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = clientPhone,
-                    onValueChange = { clientPhone = formatUsPhoneInput(it) },
+                    onValueChange = { clientPhone = it.filter { c -> c.isDigit() }.take(10) },
                     label = { Text("Teléfono (XXX) XXX-XXXX") },
+                    visualTransformation = UsPhoneVisualTransformation(),
                     modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     singleLine = true
@@ -1782,7 +1827,7 @@ fun SettingsScreen(
     var minimum by remember(settings) { mutableStateOf(settings.minimumVisit.toString()) }
     var applyMin by remember(settings) { mutableStateOf(settings.applyMinimumVisit) }
     var license by remember(settings) { mutableStateOf(settings.companyLicense) }
-    var compPhone by remember(settings) { mutableStateOf(formatUsPhoneInput(settings.companyPhone)) }
+    var compPhone by remember(settings) { mutableStateOf(settings.companyPhone.filter { it.isDigit() }.take(10)) }
     var brandName by remember(settings) { mutableStateOf(settings.brandName) }
     var permissionCheckTrigger by remember { mutableStateOf(0) }
 
@@ -1902,8 +1947,9 @@ fun SettingsScreen(
                 OutlinedTextField(license, { license = it }, label = { Text("Licencia eléctrica (opcional en PDF)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 OutlinedTextField(
                     value = compPhone,
-                    onValueChange = { compPhone = formatUsPhoneInput(it) },
+                    onValueChange = { compPhone = it.filter { c -> c.isDigit() }.take(10) },
                     label = { Text("Teléfono de empresa (XXX) XXX-XXXX") },
+                    visualTransformation = UsPhoneVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     singleLine = true
@@ -1913,7 +1959,6 @@ fun SettingsScreen(
 
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
 
-        // Panel de Permisos del Dispositivo y Privacidad Local
         Text("Permisos del Dispositivo y Privacidad", style = MaterialTheme.typography.titleLarge)
         Card(
             Modifier.fillMaxWidth(),
