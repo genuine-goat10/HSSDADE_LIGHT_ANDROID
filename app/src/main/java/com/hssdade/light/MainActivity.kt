@@ -16,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.CalendarContract
+import android.provider.ContactsContract
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -89,14 +90,12 @@ import java.util.Date
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private var sharedTextState = mutableStateOf("")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val db = AppDatabase.get(this)
-        val sharedMessage = if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
-            intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
-        } else {
-            ""
-        }
+        sharedTextState.value = extractIncomingText(intent)
         setContent {
             MaterialTheme(
                 colorScheme = lightColorScheme(
@@ -104,8 +103,38 @@ class MainActivity : ComponentActivity() {
                     secondary = Color(0xFF2D8A78)
                 )
             ) {
-                ApexBidApp(db = db, initialSharedMessage = sharedMessage)
+                ApexBidApp(
+                    db = db,
+                    initialSharedMessage = sharedTextState.value,
+                    onClearSharedMessage = { sharedTextState.value = "" }
+                )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val incoming = extractIncomingText(intent)
+        if (incoming.isNotBlank()) {
+            sharedTextState.value = incoming
+        }
+    }
+
+    private fun extractIncomingText(intent: Intent?): String {
+        if (intent == null) return ""
+        return when (intent.action) {
+            Intent.ACTION_SEND -> {
+                val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+                    ?: intent.getStringExtra(Intent.EXTRA_TITLE)
+                    ?: ""
+                val body = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+                listOf(subject.trim(), body.trim()).filter { it.isNotEmpty() }.joinToString("\n")
+            }
+            Intent.ACTION_PROCESS_TEXT -> {
+                intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()?.trim().orEmpty()
+            }
+            else -> ""
         }
     }
 }
@@ -168,39 +197,74 @@ data class ParsedClientMessage(
     val notes: String
 )
 
-fun parseClientMessageToAppointment(rawText: String, baseDayMillis: Long = System.currentTimeMillis()): ParsedClientMessage {
+fun parseClientMessageToAppointment(
+    rawText: String,
+    baseDayMillis: Long = System.currentTimeMillis(),
+    existingClients: List<ClientEntity> = emptyList()
+): ParsedClientMessage {
     val clean = rawText.trim()
     val lines = clean.lines().map { it.trim() }.filter { it.isNotEmpty() }
 
-    // 1. Extraer teléfono (10 dígitos EE. UU., ignorando +1 inicial si viene)
+    // 1. Extraer teléfono (10 dígitos EE. UU.)
     val phoneRegex = Regex("""(?:\+?1[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})""")
     val phoneMatch = phoneRegex.find(clean)
-    val phoneDigits = if (phoneMatch != null) {
+    var phoneDigits = if (phoneMatch != null) {
         phoneMatch.groupValues[1] + phoneMatch.groupValues[2] + phoneMatch.groupValues[3]
     } else {
         ""
     }
 
-    // 2. Extraer dirección física (ej: 1234 NW 49th St, Hialeah, FL 33012)
+    // 2. Extraer dirección física
     val addressRegex = Regex(
         """\b\d{1,6}\s+[A-Za-z0-9\s.#-]{2,45}?\b(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Terrace|Ter|Circle|Cir|Place|Pl|Highway|Hwy|Parkway|Pkwy|Calle|Avenida)\b\.?(?:[,\s]+[A-Za-z\s]{2,25})?(?:[,\s]+(?:FL|Florida|TX|CA|NY|NJ|GA|NC|[A-Z]{2}))?(?:\s+\d{5})?""",
         RegexOption.IGNORE_CASE
     )
     val labeledAddrRegex = Regex("""(?:direcci[oó]n|address|ubicaci[oó]n|location)\s*[:=-]\s*(.+)""", RegexOption.IGNORE_CASE)
-    val extractedAddress = labeledAddrRegex.find(clean)?.groupValues?.get(1)?.trim()
+    var extractedAddress = labeledAddrRegex.find(clean)?.groupValues?.get(1)?.trim()
         ?: addressRegex.find(clean)?.value?.trim()
         ?: ""
+
+    if (extractedAddress.isBlank() && lines.size == 1 && clean.any { it.isDigit() } && clean.length in 6..90) {
+        extractedAddress = clean
+    }
 
     // 3. Extraer nombre del cliente
     val labeledNameRegex = Regex("""(?:nombre|name|cliente|client|soy|me llamo|my name is|this is|i'm|i am)\s*[:=-]?\s*([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){0,2})""", RegexOption.IGNORE_CASE)
     val nameMatch = labeledNameRegex.find(clean)
-    val extractedName = when {
+    var extractedName = when {
         nameMatch != null -> nameMatch.groupValues[1].trim()
         lines.isNotEmpty() && lines[0].length <= 35 && !lines[0].any { it.isDigit() } -> lines[0]
         else -> ""
     }
 
-    // 4. Extraer fecha y hora relativa o explícita
+    // 4. Cruce automático con el directorio de Clientes guardados
+    if (existingClients.isNotEmpty()) {
+        val matchedByPhone = if (phoneDigits.length == 10) {
+            existingClients.find { it.phone.filter { d -> d.isDigit() }.endsWith(phoneDigits) }
+        } else null
+
+        val matchedByAddress = if (extractedAddress.isNotBlank()) {
+            existingClients.find {
+                it.address.isNotBlank() && (
+                    it.address.contains(extractedAddress, ignoreCase = true) ||
+                    extractedAddress.contains(it.address, ignoreCase = true)
+                )
+            }
+        } else null
+
+        val matchedByName = if (extractedName.isNotBlank()) {
+            existingClients.find { it.name.equals(extractedName, ignoreCase = true) }
+        } else null
+
+        val matched = matchedByPhone ?: matchedByAddress ?: matchedByName
+        if (matched != null) {
+            if (extractedName.isBlank()) extractedName = matched.name
+            if (phoneDigits.isBlank()) phoneDigits = matched.phone.filter { it.isDigit() }.take(10)
+            if (extractedAddress.isBlank()) extractedAddress = matched.address
+        }
+    }
+
+    // 5. Extraer fecha y hora relativa o explícita
     val cal = Calendar.getInstance().apply {
         timeInMillis = baseDayMillis
         set(Calendar.HOUR_OF_DAY, 9)
@@ -257,7 +321,7 @@ fun parseClientMessageToAppointment(rawText: String, baseDayMillis: Long = Syste
         }
     }
 
-    // 5. Limpiar el texto para el resumen del trabajo
+    // 6. Limpiar el texto para el resumen del trabajo
     var summary = clean
     if (phoneMatch != null) summary = summary.replace(phoneMatch.value, "")
     if (extractedAddress.isNotBlank()) summary = summary.replace(extractedAddress, "")
@@ -269,9 +333,9 @@ fun parseClientMessageToAppointment(rawText: String, baseDayMillis: Long = Syste
         name = extractedName,
         phoneDigits = phoneDigits,
         address = extractedAddress,
-        workSummary = summary.ifBlank { clean },
+        workSummary = summary.ifBlank { "Visita técnica eléctrica" },
         scheduledAtMillis = cal.timeInMillis,
-        notes = "Importado automáticamente desde mensaje"
+        notes = "Importado desde mensaje"
     )
 }
 
@@ -279,7 +343,8 @@ private fun requiredRuntimePermissions(): Array<String> {
     val perms = mutableListOf(
         Manifest.permission.CAMERA,
         Manifest.permission.ACCESS_COARSE_LOCATION,
-        Manifest.permission.ACCESS_FINE_LOCATION
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.READ_CONTACTS
     )
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         perms.add(Manifest.permission.READ_MEDIA_IMAGES)
@@ -320,13 +385,26 @@ fun ApexBidLogo(size: Dp = 40.dp) {
 }
 
 @Composable
-fun ApexBidApp(db: AppDatabase, initialSharedMessage: String = "") {
+fun ApexBidApp(
+    db: AppDatabase,
+    initialSharedMessage: String = "",
+    onClearSharedMessage: () -> Unit = {}
+) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isTabletLandscape = configuration.screenWidthDp >= 600
 
     var tab by remember { mutableStateOf(if (initialSharedMessage.isNotBlank()) 1 else 0) }
     var incomingMessageToParse by remember { mutableStateOf(initialSharedMessage) }
+
+    LaunchedEffect(initialSharedMessage) {
+        if (initialSharedMessage.isNotBlank()) {
+            incomingMessageToParse = initialSharedMessage
+            tab = 1
+            onClearSharedMessage()
+        }
+    }
+
     var settings by remember { mutableStateOf(EstimateSettings.load(context)) }
     val clients by db.clientDao().observeAll().collectAsStateWithLifecycle(emptyList())
     val quotes by db.quoteDao().observeAll().collectAsStateWithLifecycle(emptyList())
@@ -1421,7 +1499,7 @@ fun ScheduleAndRoutesScreen(
                 ) {
                     Icon(Icons.Filled.EventAvailable, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
                     Text("Sin citas programadas este día", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text("Comparte un mensaje de WhatsApp/SMS a ApexBid o pulsa 'De Mensaje' para organizarlo automáticamente.", style = MaterialTheme.typography.bodySmall)
+                    Text("En Google Mensajes selecciona el texto o toca Compartir → Agendar en ApexBid para crearla al instante.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         } else {
@@ -1554,8 +1632,10 @@ fun NewAppointmentDialog(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
 
-    val initialParsed = remember(initialRawMessage) {
-        if (initialRawMessage.isNotBlank()) parseClientMessageToAppointment(initialRawMessage, initialDateMillis) else null
+    val initialParsed = remember(initialRawMessage, clients) {
+        if (initialRawMessage.isNotBlank()) {
+            parseClientMessageToAppointment(initialRawMessage, initialDateMillis, clients)
+        } else null
     }
 
     val startCal = remember(initialDateMillis, initialParsed) {
@@ -1586,12 +1666,58 @@ fun NewAppointmentDialog(
     var clientMenuExpanded by remember { mutableStateOf(false) }
     var quoteMenuExpanded by remember { mutableStateOf(false) }
 
+    val contactPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickContact()
+    ) { contactUri ->
+        if (contactUri != null) {
+            try {
+                context.contentResolver.query(contactUri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idIdx = cursor.getColumnIndex(ContactsContract.Contacts._ID)
+                        val nameIdx = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
+                        val hasPhoneIdx = cursor.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER)
+                        val contactId = if (idIdx >= 0) cursor.getString(idIdx) else ""
+                        val displayName = if (nameIdx >= 0) cursor.getString(nameIdx).orEmpty() else ""
+                        val hasPhone = if (hasPhoneIdx >= 0) cursor.getInt(hasPhoneIdx) > 0 else false
+
+                        if (displayName.isNotBlank()) clientName = displayName
+
+                        if (hasPhone && contactId.isNotBlank()) {
+                            context.contentResolver.query(
+                                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                                null,
+                                "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
+                                arrayOf(contactId),
+                                null
+                            )?.use { pCursor ->
+                                if (pCursor.moveToFirst()) {
+                                    val numIdx = pCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                                    if (numIdx >= 0) {
+                                        val rawNum = pCursor.getString(numIdx).orEmpty()
+                                        val digits = rawNum.filter { it.isDigit() }
+                                        clientPhone = if (digits.length == 11 && digits.startsWith("1")) {
+                                            digits.drop(1)
+                                        } else {
+                                            digits.take(10)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "No se pudo leer el contacto: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     fun applyParsedText(textToParse: String) {
         if (textToParse.isBlank()) {
             Toast.makeText(context, "Pega primero el mensaje del cliente", Toast.LENGTH_SHORT).show()
             return
         }
-        val parsed = parseClientMessageToAppointment(textToParse, initialDateMillis)
+        val parsed = parseClientMessageToAppointment(textToParse, initialDateMillis, clients)
         if (parsed.name.isNotBlank()) clientName = parsed.name
         if (parsed.phoneDigits.isNotBlank()) clientPhone = parsed.phoneDigits
         if (parsed.address.isNotBlank()) clientAddress = parsed.address
@@ -1624,7 +1750,6 @@ fun NewAppointmentDialog(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Extractor automático desde mensaje de WhatsApp / SMS / Correo
                 Card(
                     Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f))
@@ -1634,8 +1759,8 @@ fun NewAppointmentDialog(
                         OutlinedTextField(
                             value = rawMessageInput,
                             onValueChange = { rawMessageInput = it },
-                            label = { Text("Pega el mensaje del cliente aquí") },
-                            placeholder = { Text("Ej: Soy Juan Pérez, 305-555-0199, 1200 W 49th St Hialeah, panel upgrade mañana 10am") },
+                            label = { Text("Texto del mensaje (Google Mensajes / WhatsApp)") },
+                            placeholder = { Text("Ej: 1200 W 49th St Hialeah FL 33012") },
                             modifier = Modifier.fillMaxWidth(),
                             minLines = 2,
                             maxLines = 4
@@ -1671,10 +1796,20 @@ fun NewAppointmentDialog(
                     }
                 }
 
+                // Botón directo a Contactos del Teléfono para completar remitente cuando el SMS solo trae la dirección
+                OutlinedButton(
+                    onClick = { contactPickerLauncher.launch(null) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.ContactPhone, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Seleccionar de Contactos del Teléfono")
+                }
+
                 if (clients.isNotEmpty()) {
                     Box {
                         OutlinedButton(onClick = { clientMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Vincular cliente guardado")
+                            Text("Vincular cliente guardado (${clients.size})")
                         }
                         DropdownMenu(expanded = clientMenuExpanded, onDismissRequest = { clientMenuExpanded = false }) {
                             clients.forEach { c ->
@@ -1683,7 +1818,7 @@ fun NewAppointmentDialog(
                                     onClick = {
                                         clientName = c.name
                                         clientPhone = c.phone.filter { it.isDigit() }.take(10)
-                                        clientAddress = c.address
+                                        if (clientAddress.isBlank()) clientAddress = c.address
                                         clientMenuExpanded = false
                                     }
                                 )
@@ -1704,7 +1839,7 @@ fun NewAppointmentDialog(
                                     onClick = {
                                         clientName = q.clientName
                                         clientPhone = q.clientPhone.filter { it.isDigit() }.take(10)
-                                        clientAddress = q.clientAddress
+                                        if (clientAddress.isBlank()) clientAddress = q.clientAddress
                                         workSummary = q.serviceName
                                         quoteMenuExpanded = false
                                     }
@@ -2955,6 +3090,9 @@ fun SettingsScreen(
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
+    val hasContacts = remember(permissionCheckTrigger) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+    }
 
     val logoFile = remember { File(context.filesDir, "company_logo.png") }
     var logoVersion by remember { mutableStateOf(0) }
@@ -3008,7 +3146,7 @@ fun SettingsScreen(
             }
             "v${pInfo.versionName} (Build $code)"
         } catch (ex: Exception) {
-            "v1.0.0"
+            "v1.0.1"
         }
     }
 
@@ -3099,6 +3237,11 @@ fun SettingsScreen(
                     title = "Ubicación",
                     purpose = "Optimizar rutas diarias y verificar direcciones en Google Maps.",
                     granted = hasLocation
+                )
+                PermissionStatusRow(
+                    title = "Contactos",
+                    purpose = "Autocompletar nombre y teléfono al importar SMS.",
+                    granted = hasContacts
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3202,8 +3345,8 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("• Base de datos local Room v5 con Agenda, Extractor de Mensajes y Rutas", style = MaterialTheme.typography.bodySmall)
-                Text("• Asistente de ruta multi-parada, Home Depot (ES/EN) y Google Lens", style = MaterialTheme.typography.bodySmall)
+                Text("• Base de datos local Room v5 con Agenda, Extractor de SMS y Rutas", style = MaterialTheme.typography.bodySmall)
+                Text("• Receptor directo desde Google Mensajes y Contactos del teléfono", style = MaterialTheme.typography.bodySmall)
                 Text("• Exportación PDF bilingüe con firma digital y evidencia fotográfica", style = MaterialTheme.typography.bodySmall)
             }
         }
