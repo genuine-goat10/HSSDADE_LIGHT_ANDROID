@@ -431,6 +431,7 @@ fun ApexBidApp(
 
     var tab by remember { mutableStateOf(if (initialSharedMessage.isNotBlank()) 1 else 0) }
     var incomingMessageToParse by remember { mutableStateOf(initialSharedMessage) }
+    var editingQuote by remember { mutableStateOf<QuoteEntity?>(null) }
 
     LaunchedEffect(initialSharedMessage) {
         if (initialSharedMessage.isNotBlank()) {
@@ -571,7 +572,10 @@ fun ApexBidApp(
                         quotes = quotes,
                         appointments = appointments,
                         isTablet = isTabletLandscape,
-                        onNew = { tab = 2 },
+                        onNew = {
+                            editingQuote = null
+                            tab = 2
+                        },
                         onOpenAgenda = { tab = 1 },
                         onOpenInvoices = { tab = 4 }
                     )
@@ -609,17 +613,41 @@ fun ApexBidApp(
                             scope.launch { db.appointmentDao().delete(appt) }
                         }
                     )
-                    2 -> QuoteScreen(lang, clients, settings, isTabletLandscape) { q ->
-                        scope.launch {
-                            db.quoteDao().insert(q)
-                            Toast.makeText(context, tr(lang, "Estimate saved", "Cotización guardada"), Toast.LENGTH_SHORT).show()
-                            tab = 3
+                    2 -> QuoteScreen(
+                        lang = lang,
+                        clients = clients,
+                        settings = settings,
+                        isTablet = isTabletLandscape,
+                        editingQuote = editingQuote,
+                        onCancelEdit = {
+                            val returnTab = if (editingQuote?.status == "Facturada") 4 else 3
+                            editingQuote = null
+                            tab = returnTab
+                        },
+                        onSave = { q ->
+                            scope.launch {
+                                if (editingQuote != null) {
+                                    db.quoteDao().update(q)
+                                    val returnTab = if (q.status == "Facturada") 4 else 3
+                                    editingQuote = null
+                                    Toast.makeText(context, tr(lang, "Estimate updated", "Cotización actualizada"), Toast.LENGTH_SHORT).show()
+                                    tab = returnTab
+                                } else {
+                                    db.quoteDao().insert(q)
+                                    Toast.makeText(context, tr(lang, "Estimate saved", "Cotización guardada"), Toast.LENGTH_SHORT).show()
+                                    tab = 3
+                                }
+                            }
                         }
-                    }
+                    )
                     3 -> HistoryScreen(
                         lang = lang,
                         quotes = quotes,
                         invoicesOnly = false,
+                        onEditQuote = { q ->
+                            editingQuote = q
+                            tab = 2
+                        },
                         onUpdateQuote = { updated ->
                             scope.launch { db.quoteDao().update(updated) }
                         },
@@ -649,6 +677,10 @@ fun ApexBidApp(
                         quotes = quotes.filter { it.status == "Facturada" },
                         invoicesOnly = true,
                         allQuotesForConversion = quotes.filter { it.status != "Facturada" },
+                        onEditQuote = { q ->
+                            editingQuote = q
+                            tab = 2
+                        },
                         onUpdateQuote = { updated ->
                             scope.launch { db.quoteDao().update(updated) }
                         },
@@ -752,7 +784,10 @@ fun ApexBidApp(
                         navItems.forEach { (label, icon, index) ->
                             NavigationRailItem(
                                 selected = tab == index,
-                                onClick = { tab = index },
+                                onClick = {
+                                    if (index != 2) editingQuote = null
+                                    tab = index
+                                },
                                 icon = { Icon(icon, contentDescription = label) },
                                 label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             )
@@ -769,7 +804,10 @@ fun ApexBidApp(
                         navItems.forEach { (label, icon, index) ->
                             NavigationBarItem(
                                 selected = tab == index,
-                                onClick = { tab = index },
+                                onClick = {
+                                    if (index != 2) editingQuote = null
+                                    tab = index
+                                },
                                 icon = { Icon(icon, contentDescription = label) },
                                 label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             )
@@ -2891,7 +2929,15 @@ fun EditClientDialog(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSettings, isTablet: Boolean, onSave: (QuoteEntity) -> Unit) {
+fun QuoteScreen(
+    lang: String,
+    clients: List<ClientEntity>,
+    settings: EstimateSettings,
+    isTablet: Boolean,
+    editingQuote: QuoteEntity? = null,
+    onCancelEdit: () -> Unit = {},
+    onSave: (QuoteEntity) -> Unit
+) {
     val context = LocalContext.current
     var client by remember { mutableStateOf("") }
     var clientPhone by remember { mutableStateOf("") }
@@ -2899,7 +2945,6 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
     var clientAddress by remember { mutableStateOf("") }
     var clientExpanded by remember { mutableStateOf(false) }
 
-    // Mapa reactivo: ID del servicio -> Cantidad individual (ej. 4 tomacorrientes, 2 abanicos, 1 mini-split)
     val selectedQuantities = remember { mutableStateMapOf<Int, Int>() }
 
     var showCatalogSheet by remember { mutableStateOf(false) }
@@ -2909,11 +2954,69 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
     var notes by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
     var extraMaterials by remember { mutableStateOf("0") }
+    var customTotalOverride by remember { mutableStateOf("") }
+    var servicesModifiedDuringEdit by remember { mutableStateOf(false) }
     var materialSearchQuery by remember { mutableStateOf("") }
     val attachedPhotos = remember { mutableStateListOf<String>() }
     var pendingCameraFile by remember { mutableStateOf<File?>(null) }
     var pendingLensFile by remember { mutableStateOf<File?>(null) }
     var pendingCameraAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    LaunchedEffect(editingQuote) {
+        if (editingQuote != null) {
+            client = editingQuote.clientName
+            clientPhone = editingQuote.clientPhone.filter { it.isDigit() }.take(10)
+            clientEmail = editingQuote.clientEmail
+            clientAddress = editingQuote.clientAddress
+            descEs = editingQuote.descriptionEs
+            descEn = editingQuote.descriptionEn
+            notes = editingQuote.observations
+            qty = if (editingQuote.quantity % 1.0 == 0.0) {
+                editingQuote.quantity.toInt().toString()
+            } else {
+                editingQuote.quantity.toString()
+            }
+            extraMaterials = "0"
+            customTotalOverride = "%.2f".format(Locale.US, editingQuote.total)
+            servicesModifiedDuringEdit = false
+
+            selectedQuantities.clear()
+            editingQuote.serviceName.split(" / ").forEach { part ->
+                val qtyMatch = Regex("""^\(x(\d+)\)\s*(.+)$""").find(part.trim())
+                val parsedCount = qtyMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
+                val cleanNames = (qtyMatch?.groupValues?.get(2) ?: part.trim())
+                    .split("|")
+                    .map { it.trim() }
+                val matchedSvc = ServiceCatalog.all.find { svc ->
+                    cleanNames.any { n ->
+                        svc.nameEn.equals(n, ignoreCase = true) || svc.nameEs.equals(n, ignoreCase = true)
+                    }
+                }
+                if (matchedSvc != null) {
+                    selectedQuantities[matchedSvc.id] = parsedCount
+                }
+            }
+
+            attachedPhotos.clear()
+            editingQuote.photoUris.split("|")
+                .filter { it.isNotBlank() && File(it).exists() }
+                .forEach { attachedPhotos.add(it) }
+        } else {
+            client = ""
+            clientPhone = ""
+            clientEmail = ""
+            clientAddress = ""
+            selectedQuantities.clear()
+            descEs = ""
+            descEn = ""
+            notes = ""
+            qty = "1"
+            extraMaterials = "0"
+            customTotalOverride = ""
+            servicesModifiedDuringEdit = false
+            attachedPhotos.clear()
+        }
+    }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -2983,10 +3086,16 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
     val cost = (laborHours * settings.hourlyOperatingCost + materials) * globalMultiplier
     val margin = settings.marginPercent / 100.0
     val rawTotal = if (cost > 0 && margin < 1) cost / (1 - margin) else 0.0
-    val total = if (settings.applyMinimumVisit && rawTotal > 0 && rawTotal < settings.minimumVisit) {
+    val calculatedTotal = if (settings.applyMinimumVisit && rawTotal > 0 && rawTotal < settings.minimumVisit) {
         settings.minimumVisit
     } else {
         rawTotal
+    }
+
+    val total = if (editingQuote != null && !servicesModifiedDuringEdit) {
+        customTotalOverride.toDoubleOrNull() ?: calculatedTotal
+    } else {
+        calculatedTotal
     }
 
     val money = NumberFormat.getCurrencyInstance(Locale.US)
@@ -3000,6 +3109,7 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
     }
 
     fun updateServiceQuantityAndRefreshAi(serviceId: Int, newCount: Int) {
+        servicesModifiedDuringEdit = true
         if (newCount <= 0) {
             selectedQuantities.remove(serviceId)
         } else {
@@ -3150,7 +3260,27 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
 
     val leftColumn: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Text(tr(lang, "New Estimate", "Nueva cotización"), style = MaterialTheme.typography.titleLarge)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (editingQuote != null) {
+                        tr(lang, "Edit Estimate #${editingQuote.id}", "Editar Cotización #${editingQuote.id}")
+                    } else {
+                        tr(lang, "New Estimate", "Nueva cotización")
+                    },
+                    style = MaterialTheme.typography.titleLarge
+                )
+                if (editingQuote != null) {
+                    TextButton(onClick = onCancelEdit) {
+                        Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(tr(lang, "Cancel Edit", "Cancelar edición"))
+                    }
+                }
+            }
             Box {
                 OutlinedButton(onClick = { clientExpanded = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(if (client.isBlank()) tr(lang, "Link Saved Customer", "Vincular cliente guardado") else "${tr(lang, "Client", "Cliente")}: $client")
@@ -3482,7 +3612,10 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = qty,
-                    onValueChange = { qty = it },
+                    onValueChange = {
+                        qty = it
+                        servicesModifiedDuringEdit = true
+                    },
                     label = { Text(tr(lang, "Global Multiplier", "Multiplicador global")) },
                     modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -3490,9 +3623,34 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
                 )
                 OutlinedTextField(
                     value = extraMaterials,
-                    onValueChange = { extraMaterials = it },
+                    onValueChange = {
+                        extraMaterials = it
+                        servicesModifiedDuringEdit = true
+                    },
                     label = { Text(tr(lang, "Extra Materials $", "Material extra $")) },
                     modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+            }
+
+            if (editingQuote != null) {
+                OutlinedTextField(
+                    value = customTotalOverride,
+                    onValueChange = {
+                        customTotalOverride = it.filter { c -> c.isDigit() || c == '.' }
+                        servicesModifiedDuringEdit = false
+                    },
+                    label = { Text(tr(lang, "Final Price Override ($)", "Precio final editable ($)")) },
+                    trailingIcon = {
+                        TextButton(onClick = {
+                            servicesModifiedDuringEdit = true
+                            customTotalOverride = "%.2f".format(Locale.US, calculatedTotal)
+                        }) {
+                            Text(tr(lang, "Recalc", "Recalcular"))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true
                 )
@@ -3512,17 +3670,40 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
                 }
             }
 
+            val canSave = client.isNotBlank() &&
+                (selectedWithQty.isNotEmpty() || editingQuote != null) &&
+                globalMultiplier > 0
+
             Button(
                 onClick = {
-                    if (client.isNotBlank() && selectedWithQty.isNotEmpty() && globalMultiplier > 0) {
-                        val names = selectedWithQty.joinToString(" / ") { (svc, count) ->
-                            val prefix = if (count > 1) "(x$count) " else ""
-                            "$prefix${svc.nameEn} | $prefix${svc.nameEs}"
+                    if (canSave) {
+                        val names = if (selectedWithQty.isNotEmpty()) {
+                            selectedWithQty.joinToString(" / ") { (svc, count) ->
+                                val prefix = if (count > 1) "(x$count) " else ""
+                                "$prefix${svc.nameEn} | $prefix${svc.nameEs}"
+                            }
+                        } else {
+                            editingQuote?.serviceName.orEmpty()
                         }
                         val (autoEs, autoEn) = buildSmartDescriptions(selectedWithQty, descEs, descEn, notes)
                         val finalEs = descEs.ifBlank { autoEs.ifBlank { serviceNamesEs } }
                         val finalEn = descEn.ifBlank { autoEn.ifBlank { serviceNamesEn } }
-                        onSave(
+
+                        val quoteToSave = if (editingQuote != null) {
+                            editingQuote.copy(
+                                clientName = client.trim(),
+                                clientPhone = formatUsPhoneInput(clientPhone),
+                                clientEmail = clientEmail.trim(),
+                                clientAddress = clientAddress.trim(),
+                                serviceName = names,
+                                descriptionEs = finalEs,
+                                descriptionEn = finalEn,
+                                observations = notes.trim(),
+                                quantity = globalMultiplier,
+                                total = total,
+                                photoUris = attachedPhotos.joinToString("|")
+                            )
+                        } else {
                             QuoteEntity(
                                 clientName = client.trim(),
                                 clientPhone = formatUsPhoneInput(clientPhone),
@@ -3537,14 +3718,18 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
                                 status = "Pendiente",
                                 photoUris = attachedPhotos.joinToString("|")
                             )
-                        )
-                        client = ""; clientPhone = ""; clientEmail = ""; clientAddress = ""; selectedQuantities.clear()
-                        descEs = ""; descEn = ""; notes = ""; qty = "1"; extraMaterials = "0"; attachedPhotos.clear()
+                        }
+                        onSave(quoteToSave)
                     }
                 },
-                enabled = client.isNotBlank() && selectedWithQty.isNotEmpty() && globalMultiplier > 0,
+                enabled = canSave,
                 modifier = Modifier.fillMaxWidth()
-            ) { Text(tr(lang, "Save Estimate", "Guardar cotización")) }
+            ) {
+                Text(
+                    if (editingQuote != null) tr(lang, "Update Estimate", "Actualizar cotización")
+                    else tr(lang, "Save Estimate", "Guardar cotización")
+                )
+            }
         }
     }
 
@@ -3578,6 +3763,7 @@ fun HistoryScreen(
     quotes: List<QuoteEntity>,
     invoicesOnly: Boolean = false,
     allQuotesForConversion: List<QuoteEntity> = emptyList(),
+    onEditQuote: (QuoteEntity) -> Unit = {},
     onUpdateQuote: (QuoteEntity) -> Unit,
     onExportPdf: (QuoteEntity, String) -> Unit
 ) {
@@ -3689,10 +3875,23 @@ fun HistoryScreen(
                                         }
                                     }
                                 }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(dateFmt.format(Date(q.createdAt)), style = MaterialTheme.typography.bodySmall)
-                                    if (photoCount > 0) {
-                                        Text("📷 $photoCount photo(s)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(dateFmt.format(Date(q.createdAt)), style = MaterialTheme.typography.bodySmall)
+                                        if (photoCount > 0) {
+                                            Text("📷 $photoCount photo(s)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = { onEditQuote(q) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Edit,
+                                            contentDescription = tr(lang, "Edit Quote", "Editar cotización"),
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
                                 }
                             }
@@ -4008,7 +4207,7 @@ fun SettingsScreen(
             }
             "v${pInfo.versionName} (Build $code)"
         } catch (ex: Exception) {
-            "v1.4.0"
+            "v1.5.0"
         }
     }
 
@@ -4290,7 +4489,7 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("• Per-Service Quantity Controls, 61 Services (incl. Mini-Splits) & Invoices Tab", style = MaterialTheme.typography.bodySmall)
+                Text("• Edit Saved Quotes/Invoices, Per-Service Quantities & 61 Services (incl. Mini-Splits)", style = MaterialTheme.typography.bodySmall)
                 Text("• Language-Matched PDF Export, Live GPS Arrival Clock & Duration in Hours", style = MaterialTheme.typography.bodySmall)
                 Text("• Status-bar safe layout & Locked Completed Jobs Statistics", style = MaterialTheme.typography.bodySmall)
             }
