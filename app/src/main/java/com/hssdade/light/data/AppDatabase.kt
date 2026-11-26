@@ -70,6 +70,9 @@ interface ClientDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(client: ClientEntity): Long
 
+    @Update
+    suspend fun update(client: ClientEntity)
+
     @Delete
     suspend fun delete(client: ClientEntity)
 }
