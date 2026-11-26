@@ -9,6 +9,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -100,6 +101,33 @@ fun formatUsPhoneInput(raw: String): String {
         digits.length <= 6 -> "(${digits.substring(0, 3)}) ${digits.substring(3)}"
         else -> "(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6)}"
     }
+}
+
+private fun requiredRuntimePermissions(): Array<String> {
+    val perms = mutableListOf(
+        Manifest.permission.CAMERA,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    )
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        perms.add(Manifest.permission.READ_MEDIA_IMAGES)
+    } else {
+        perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+    }
+    return perms.toTypedArray()
+}
+
+private fun openAppSystemSettings(context: Context) {
+    val intent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", context.packageName, null)
+    ).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(intent)
 }
 
 @Composable
@@ -975,7 +1003,7 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
         if (granted) {
             pendingCameraAction?.invoke()
         } else {
-            Toast.makeText(context, "Activa el permiso de cámara para tomar fotos", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Habilita el permiso de Cámara en Ajustes para usar esta función", Toast.LENGTH_LONG).show()
         }
         pendingCameraAction = null
     }
@@ -1216,7 +1244,6 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
                 }
             }
 
-            // Asistente de precios en Home Depot + Identificador visual tipo Google Lens
             Card(
                 Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
@@ -1281,7 +1308,6 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
 
     val rightColumn: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            // Asistente IA de redacción y traducción ES <-> EN
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1339,7 +1365,6 @@ fun QuoteScreen(clients: List<ClientEntity>, settings: EstimateSettings, isTable
 
             OutlinedTextField(notes, { notes = it }, label = { Text("Observaciones / Job notes") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
 
-            // Fotos adjuntas al estimado y PDF
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -1759,6 +1784,29 @@ fun SettingsScreen(
     var license by remember(settings) { mutableStateOf(settings.companyLicense) }
     var compPhone by remember(settings) { mutableStateOf(formatUsPhoneInput(settings.companyPhone)) }
     var brandName by remember(settings) { mutableStateOf(settings.brandName) }
+    var permissionCheckTrigger by remember { mutableStateOf(0) }
+
+    val permissionsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        permissionCheckTrigger++
+        Toast.makeText(context, "Estado de permisos actualizado", Toast.LENGTH_SHORT).show()
+    }
+
+    val hasCamera = remember(permissionCheckTrigger) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    }
+    val hasGallery = remember(permissionCheckTrigger) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+    val hasLocation = remember(permissionCheckTrigger) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    }
 
     val logoFile = remember { File(context.filesDir, "company_logo.png") }
     var logoVersion by remember { mutableStateOf(0) }
@@ -1865,6 +1913,61 @@ fun SettingsScreen(
 
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
 
+        // Panel de Permisos del Dispositivo y Privacidad Local
+        Text("Permisos del Dispositivo y Privacidad", style = MaterialTheme.typography.titleLarge)
+        Card(
+            Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Filled.VerifiedUser, contentDescription = null, tint = Color(0xFF2D8A78))
+                    Text("Control transparente y almacenamiento 100% local", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                }
+                Text(
+                    "Tus clientes, cotizaciones, fotos y firmas se almacenan únicamente dentro de este dispositivo. Los permisos se usan exclusivamente cuando ejecutas una acción:",
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                PermissionStatusRow(
+                    title = "Cámara",
+                    purpose = "Capturar fotos de obra y escanear piezas con Google Lens.",
+                    granted = hasCamera
+                )
+                PermissionStatusRow(
+                    title = "Galería y Almacenamiento",
+                    purpose = "Adjuntar fotos existentes, cargar logo y guardar PDFs.",
+                    granted = hasGallery
+                )
+                PermissionStatusRow(
+                    title = "Ubicación",
+                    purpose = "Verificar direcciones de trabajo en Google Maps.",
+                    granted = hasLocation
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { permissionsLauncher.launch(requiredRuntimePermissions()) },
+                        modifier = Modifier.weight(1.2f)
+                    ) {
+                        Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Activar permisos", maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = { openAppSystemSettings(context) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Ajustes Android", maxLines = 1)
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+
         Text("Configuración de precios", style = MaterialTheme.typography.titleLarge)
         Text("Estos valores son internos y nunca aparecen en el PDF del cliente.", style = MaterialTheme.typography.bodySmall)
 
@@ -1946,6 +2049,35 @@ fun SettingsScreen(
                 Text("• Asistente Home Depot (ES/EN), Google Lens y Redacción IA", style = MaterialTheme.typography.bodySmall)
                 Text("• Exportación PDF bilingüe con firma digital y evidencia fotográfica", style = MaterialTheme.typography.bodySmall)
             }
+        }
+    }
+}
+
+@Composable
+private fun PermissionStatusRow(title: String, purpose: String, granted: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(purpose, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Surface(
+            color = if (granted) Color(0xFF2D8A78).copy(alpha = 0.16f) else Color(0xFFB3261E).copy(alpha = 0.14f),
+            shape = RoundedCornerShape(6.dp)
+        ) {
+            Text(
+                text = if (granted) "Activo" else "Pendiente",
+                color = if (granted) Color(0xFF1F6658) else Color(0xFFB3261E),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            )
         }
     }
 }
