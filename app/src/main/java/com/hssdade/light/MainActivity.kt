@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -59,6 +60,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -73,10 +75,13 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hssdade.light.data.*
 import com.hssdade.light.pdf.QuotePdf
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -197,6 +202,21 @@ data class ParsedClientMessage(
     val notes: String
 )
 
+fun looksLikeClientMessageOrAddress(text: String): Boolean {
+    val clean = text.trim()
+    if (clean.length !in 6..450) return false
+    val hasPhone = Regex("""\b\d{3}[\s.-]?\d{3}[\s.-]?\d{4}\b""").containsMatchIn(clean)
+    val hasStreet = Regex(
+        """\b\d{1,6}\s+[A-Za-z0-9\s.#-]{2,40}?\b(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Terrace|Ter|Circle|Cir|Place|Pl|Highway|Hwy|Parkway|Pkwy|NW|NE|SW|SE|Calle|Avenida)\b""",
+        RegexOption.IGNORE_CASE
+    ).containsMatchIn(clean)
+    val hasServiceKeyword = Regex(
+        """\b(?:breaker|panel|outlet|gfci|afci|switch|fan|charger|ev|light|recessed|wire|wiring|troubleshoot|estimate|cotizaci[oó]n|electric|el[eé]ctric|ma[nñ]ana|tomorrow|hoy|today)\b""",
+        RegexOption.IGNORE_CASE
+    ).containsMatchIn(clean)
+    return hasPhone || hasStreet || hasServiceKeyword
+}
+
 fun parseClientMessageToAppointment(
     rawText: String,
     baseDayMillis: Long = System.currentTimeMillis(),
@@ -205,7 +225,6 @@ fun parseClientMessageToAppointment(
     val clean = rawText.trim()
     val lines = clean.lines().map { it.trim() }.filter { it.isNotEmpty() }
 
-    // 1. Extraer teléfono (10 dígitos EE. UU.)
     val phoneRegex = Regex("""(?:\+?1[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})""")
     val phoneMatch = phoneRegex.find(clean)
     var phoneDigits = if (phoneMatch != null) {
@@ -214,7 +233,6 @@ fun parseClientMessageToAppointment(
         ""
     }
 
-    // 2. Extraer dirección física
     val addressRegex = Regex(
         """\b\d{1,6}\s+[A-Za-z0-9\s.#-]{2,45}?\b(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Terrace|Ter|Circle|Cir|Place|Pl|Highway|Hwy|Parkway|Pkwy|Calle|Avenida)\b\.?(?:[,\s]+[A-Za-z\s]{2,25})?(?:[,\s]+(?:FL|Florida|TX|CA|NY|NJ|GA|NC|[A-Z]{2}))?(?:\s+\d{5})?""",
         RegexOption.IGNORE_CASE
@@ -228,7 +246,6 @@ fun parseClientMessageToAppointment(
         extractedAddress = clean
     }
 
-    // 3. Extraer nombre del cliente
     val labeledNameRegex = Regex("""(?:nombre|name|cliente|client|soy|me llamo|my name is|this is|i'm|i am)\s*[:=-]?\s*([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){0,2})""", RegexOption.IGNORE_CASE)
     val nameMatch = labeledNameRegex.find(clean)
     var extractedName = when {
@@ -237,7 +254,6 @@ fun parseClientMessageToAppointment(
         else -> ""
     }
 
-    // 4. Cruce automático con el directorio de Clientes guardados
     if (existingClients.isNotEmpty()) {
         val matchedByPhone = if (phoneDigits.length == 10) {
             existingClients.find { it.phone.filter { d -> d.isDigit() }.endsWith(phoneDigits) }
@@ -264,7 +280,6 @@ fun parseClientMessageToAppointment(
         }
     }
 
-    // 5. Extraer fecha y hora relativa o explícita
     val cal = Calendar.getInstance().apply {
         timeInMillis = baseDayMillis
         set(Calendar.HOUR_OF_DAY, 9)
@@ -277,7 +292,7 @@ fun parseClientMessageToAppointment(
     when {
         lower.contains("pasado mañana") || lower.contains("day after tomorrow") -> cal.add(Calendar.DAY_OF_YEAR, 2)
         lower.contains("mañana") || lower.contains("tomorrow") -> cal.add(Calendar.DAY_OF_YEAR, 1)
-        lower.contains("hoy") || lower.contains("today") -> { /* mantiene hoy */ }
+        lower.contains("hoy") || lower.contains("today") -> { }
         else -> {
             val dayMap = listOf(
                 listOf("lunes", "monday") to Calendar.MONDAY,
@@ -321,7 +336,6 @@ fun parseClientMessageToAppointment(
         }
     }
 
-    // 6. Limpiar el texto para el resumen del trabajo
     var summary = clean
     if (phoneMatch != null) summary = summary.replace(phoneMatch.value, "")
     if (extractedAddress.isNotBlank()) summary = summary.replace(extractedAddress, "")
@@ -1230,6 +1244,7 @@ fun ScheduleAndRoutesScreen(
     onDeleteAppointment: (AppointmentEntity) -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val dayNameFmt = remember { SimpleDateFormat("EEE", Locale("es", "ES")) }
     val dayNumFmt = remember { SimpleDateFormat("dd", Locale.US) }
@@ -1240,6 +1255,44 @@ fun ScheduleAndRoutesScreen(
     var selectedDayMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var showNewDialog by remember { mutableStateOf(initialMessageText.isNotBlank()) }
     var prefillMessage by remember { mutableStateOf(initialMessageText) }
+    var lastAutoClipHash by remember {
+        mutableStateOf(
+            context.getSharedPreferences("apexbid_clip", Context.MODE_PRIVATE).getInt("last_hash", 0)
+        )
+    }
+
+    fun checkClipboardForNewClientMessage() {
+        if (showNewDialog || prefillMessage.isNotBlank()) return
+        try {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+            if (!cm.hasPrimaryClip()) return
+            val clipText = cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()?.trim().orEmpty()
+            val hash = clipText.hashCode()
+            if (clipText.isNotBlank() && hash != lastAutoClipHash && looksLikeClientMessageOrAddress(clipText)) {
+                lastAutoClipHash = hash
+                context.getSharedPreferences("apexbid_clip", Context.MODE_PRIVATE)
+                    .edit().putInt("last_hash", hash).apply()
+                prefillMessage = clipText
+                showNewDialog = true
+                Toast.makeText(context, "Mensaje detectado del portapapeles", Toast.LENGTH_SHORT).show()
+            }
+        } catch (_: Exception) { }
+    }
+
+    LaunchedEffect(Unit) {
+        delay(250)
+        checkClipboardForNewClientMessage()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                checkClipboardForNewClientMessage()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(initialMessageText) {
         if (initialMessageText.isNotBlank()) {
@@ -1499,7 +1552,7 @@ fun ScheduleAndRoutesScreen(
                 ) {
                     Icon(Icons.Filled.EventAvailable, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
                     Text("Sin citas programadas este día", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text("En Google Mensajes selecciona el texto o toca Compartir → Agendar en ApexBid para crearla al instante.", style = MaterialTheme.typography.bodySmall)
+                    Text("Copia cualquier mensaje en Google Mensajes y abre Agenda: se detectará automáticamente para crear la cita.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         } else {
@@ -1806,7 +1859,6 @@ fun NewAppointmentDialog(
                     }
                 }
 
-                // Botón directo a Contactos del Teléfono con solicitud automática de permiso
                 OutlinedButton(
                     onClick = {
                         val hasContactsPerm = ContextCompat.checkSelfPermission(
@@ -3166,7 +3218,7 @@ fun SettingsScreen(
             }
             "v${pInfo.versionName} (Build $code)"
         } catch (ex: Exception) {
-            "v1.0.2"
+            "v1.0.3"
         }
     }
 
@@ -3365,8 +3417,8 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("• Base de datos local Room v5 con Agenda, Extractor de SMS y Rutas", style = MaterialTheme.typography.bodySmall)
-                Text("• Receptor directo desde Google Mensajes y Contactos del teléfono", style = MaterialTheme.typography.bodySmall)
+                Text("• Base de datos local Room v5 con Agenda, Extractor Automático y Rutas", style = MaterialTheme.typography.bodySmall)
+                Text("• Detección automática del portapapeles, Google Mensajes y Contactos", style = MaterialTheme.typography.bodySmall)
                 Text("• Exportación PDF bilingüe con firma digital y evidencia fotográfica", style = MaterialTheme.typography.bodySmall)
             }
         }
