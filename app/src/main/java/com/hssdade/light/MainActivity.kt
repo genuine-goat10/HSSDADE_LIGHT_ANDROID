@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -91,6 +92,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val db = AppDatabase.get(this)
+        val sharedMessage = if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
+        } else {
+            ""
+        }
         setContent {
             MaterialTheme(
                 colorScheme = lightColorScheme(
@@ -98,7 +104,7 @@ class MainActivity : ComponentActivity() {
                     secondary = Color(0xFF2D8A78)
                 )
             ) {
-                ApexBidApp(db)
+                ApexBidApp(db = db, initialSharedMessage = sharedMessage)
             }
         }
     }
@@ -153,6 +159,122 @@ class UsPhoneVisualTransformation : VisualTransformation {
     }
 }
 
+data class ParsedClientMessage(
+    val name: String,
+    val phoneDigits: String,
+    val address: String,
+    val workSummary: String,
+    val scheduledAtMillis: Long,
+    val notes: String
+)
+
+fun parseClientMessageToAppointment(rawText: String, baseDayMillis: Long = System.currentTimeMillis()): ParsedClientMessage {
+    val clean = rawText.trim()
+    val lines = clean.lines().map { it.trim() }.filter { it.isNotEmpty() }
+
+    // 1. Extraer teléfono (10 dígitos EE. UU., ignorando +1 inicial si viene)
+    val phoneRegex = Regex("""(?:\+?1[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})""")
+    val phoneMatch = phoneRegex.find(clean)
+    val phoneDigits = if (phoneMatch != null) {
+        phoneMatch.groupValues[1] + phoneMatch.groupValues[2] + phoneMatch.groupValues[3]
+    } else {
+        ""
+    }
+
+    // 2. Extraer dirección física (ej: 1234 NW 49th St, Hialeah, FL 33012)
+    val addressRegex = Regex(
+        """\b\d{1,6}\s+[A-Za-z0-9\s.#-]{2,45}?\b(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Terrace|Ter|Circle|Cir|Place|Pl|Highway|Hwy|Parkway|Pkwy|Calle|Avenida)\b\.?(?:[,\s]+[A-Za-z\s]{2,25})?(?:[,\s]+(?:FL|Florida|TX|CA|NY|NJ|GA|NC|[A-Z]{2}))?(?:\s+\d{5})?""",
+        RegexOption.IGNORE_CASE
+    )
+    val labeledAddrRegex = Regex("""(?:direcci[oó]n|address|ubicaci[oó]n|location)\s*[:=-]\s*(.+)""", RegexOption.IGNORE_CASE)
+    val extractedAddress = labeledAddrRegex.find(clean)?.groupValues?.get(1)?.trim()
+        ?: addressRegex.find(clean)?.value?.trim()
+        ?: ""
+
+    // 3. Extraer nombre del cliente
+    val labeledNameRegex = Regex("""(?:nombre|name|cliente|client|soy|me llamo|my name is|this is|i'm|i am)\s*[:=-]?\s*([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+){0,2})""", RegexOption.IGNORE_CASE)
+    val nameMatch = labeledNameRegex.find(clean)
+    val extractedName = when {
+        nameMatch != null -> nameMatch.groupValues[1].trim()
+        lines.isNotEmpty() && lines[0].length <= 35 && !lines[0].any { it.isDigit() } -> lines[0]
+        else -> ""
+    }
+
+    // 4. Extraer fecha y hora relativa o explícita
+    val cal = Calendar.getInstance().apply {
+        timeInMillis = baseDayMillis
+        set(Calendar.HOUR_OF_DAY, 9)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+
+    val lower = clean.lowercase()
+    when {
+        lower.contains("pasado mañana") || lower.contains("day after tomorrow") -> cal.add(Calendar.DAY_OF_YEAR, 2)
+        lower.contains("mañana") || lower.contains("tomorrow") -> cal.add(Calendar.DAY_OF_YEAR, 1)
+        lower.contains("hoy") || lower.contains("today") -> { /* mantiene hoy */ }
+        else -> {
+            val dayMap = listOf(
+                listOf("lunes", "monday") to Calendar.MONDAY,
+                listOf("martes", "tuesday") to Calendar.TUESDAY,
+                listOf("miércoles", "miercoles", "wednesday") to Calendar.WEDNESDAY,
+                listOf("jueves", "thursday") to Calendar.THURSDAY,
+                listOf("viernes", "friday") to Calendar.FRIDAY,
+                listOf("sábado", "sabado", "saturday") to Calendar.SATURDAY,
+                listOf("domingo", "sunday") to Calendar.SUNDAY
+            )
+            for ((keywords, targetDow) in dayMap) {
+                if (keywords.any { lower.contains(it) }) {
+                    val currentDow = cal.get(Calendar.DAY_OF_WEEK)
+                    var diff = targetDow - currentDow
+                    if (diff <= 0) diff += 7
+                    cal.add(Calendar.DAY_OF_YEAR, diff)
+                    break
+                }
+            }
+        }
+    }
+
+    val timeRegex = Regex("""\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\b""", RegexOption.IGNORE_CASE)
+    val time24Regex = Regex("""(?:a las|at|hora|time)\s*[:=-]?\s*(\d{1,2}):(\d{2})""", RegexOption.IGNORE_CASE)
+    val tMatch = timeRegex.find(clean)
+    if (tMatch != null) {
+        var h = tMatch.groupValues[1].toIntOrNull() ?: 9
+        val m = tMatch.groupValues[2].toIntOrNull() ?: 0
+        val ampm = tMatch.groupValues[3].lowercase()
+        if (ampm.startsWith("p") && h < 12) h += 12
+        if (ampm.startsWith("a") && h == 12) h = 0
+        cal.set(Calendar.HOUR_OF_DAY, h.coerceIn(0, 23))
+        cal.set(Calendar.MINUTE, m.coerceIn(0, 59))
+    } else {
+        val t24 = time24Regex.find(clean)
+        if (t24 != null) {
+            val h = t24.groupValues[1].toIntOrNull() ?: 9
+            val m = t24.groupValues[2].toIntOrNull() ?: 0
+            cal.set(Calendar.HOUR_OF_DAY, h.coerceIn(0, 23))
+            cal.set(Calendar.MINUTE, m.coerceIn(0, 59))
+        }
+    }
+
+    // 5. Limpiar el texto para el resumen del trabajo
+    var summary = clean
+    if (phoneMatch != null) summary = summary.replace(phoneMatch.value, "")
+    if (extractedAddress.isNotBlank()) summary = summary.replace(extractedAddress, "")
+    summary = summary
+        .replace(Regex("""\s+"""), " ")
+        .trim(' ', ',', '.', '-', ':', ';')
+
+    return ParsedClientMessage(
+        name = extractedName,
+        phoneDigits = phoneDigits,
+        address = extractedAddress,
+        workSummary = summary.ifBlank { clean },
+        scheduledAtMillis = cal.timeInMillis,
+        notes = "Importado automáticamente desde mensaje"
+    )
+}
+
 private fun requiredRuntimePermissions(): Array<String> {
     val perms = mutableListOf(
         Manifest.permission.CAMERA,
@@ -198,12 +320,13 @@ fun ApexBidLogo(size: Dp = 40.dp) {
 }
 
 @Composable
-fun ApexBidApp(db: AppDatabase) {
+fun ApexBidApp(db: AppDatabase, initialSharedMessage: String = "") {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isTabletLandscape = configuration.screenWidthDp >= 600
 
-    var tab by remember { mutableStateOf(0) }
+    var tab by remember { mutableStateOf(if (initialSharedMessage.isNotBlank()) 1 else 0) }
+    var incomingMessageToParse by remember { mutableStateOf(initialSharedMessage) }
     var settings by remember { mutableStateOf(EstimateSettings.load(context)) }
     val clients by db.clientDao().observeAll().collectAsStateWithLifecycle(emptyList())
     val quotes by db.quoteDao().observeAll().collectAsStateWithLifecycle(emptyList())
@@ -264,10 +387,24 @@ fun ApexBidApp(db: AppDatabase) {
                     quotes = quotes,
                     settings = settings,
                     isTablet = isTabletLandscape,
-                    onSaveAppointment = { appt ->
+                    initialMessageText = incomingMessageToParse,
+                    onConsumeInitialMessage = { incomingMessageToParse = "" },
+                    onSaveAppointment = { appt, alsoSaveClient ->
                         scope.launch {
                             db.appointmentDao().insert(appt)
-                            Toast.makeText(context, "Cita programada", Toast.LENGTH_SHORT).show()
+                            if (alsoSaveClient && appt.clientName.isNotBlank()) {
+                                val exists = clients.any { it.name.equals(appt.clientName.trim(), ignoreCase = true) }
+                                if (!exists) {
+                                    db.clientDao().insert(
+                                        ClientEntity(
+                                            name = appt.clientName.trim(),
+                                            phone = formatUsPhoneInput(appt.clientPhone),
+                                            address = appt.clientAddress.trim()
+                                        )
+                                    )
+                                }
+                            }
+                            Toast.makeText(context, "Cita organizada y guardada", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onUpdateAppointment = { appt ->
@@ -1008,7 +1145,9 @@ fun ScheduleAndRoutesScreen(
     quotes: List<QuoteEntity>,
     settings: EstimateSettings,
     isTablet: Boolean,
-    onSaveAppointment: (AppointmentEntity) -> Unit,
+    initialMessageText: String = "",
+    onConsumeInitialMessage: () -> Unit = {},
+    onSaveAppointment: (AppointmentEntity, Boolean) -> Unit,
     onUpdateAppointment: (AppointmentEntity) -> Unit,
     onDeleteAppointment: (AppointmentEntity) -> Unit
 ) {
@@ -1021,9 +1160,17 @@ fun ScheduleAndRoutesScreen(
 
     var weekOffset by remember { mutableStateOf(0) }
     var selectedDayMillis by remember { mutableStateOf(System.currentTimeMillis()) }
-    var showNewDialog by remember { mutableStateOf(false) }
+    var showNewDialog by remember { mutableStateOf(initialMessageText.isNotBlank()) }
+    var prefillMessage by remember { mutableStateOf(initialMessageText) }
 
-    // Estado del asistente de ruta
+    LaunchedEffect(initialMessageText) {
+        if (initialMessageText.isNotBlank()) {
+            prefillMessage = initialMessageText
+            showNewDialog = true
+            onConsumeInitialMessage()
+        }
+    }
+
     var useCurrentGps by remember { mutableStateOf(true) }
     var customStartAddress by remember { mutableStateOf(settings.defaultStartAddress) }
     var isOptimizingRoute by remember { mutableStateOf(false) }
@@ -1059,13 +1206,18 @@ fun ScheduleAndRoutesScreen(
     if (showNewDialog) {
         NewAppointmentDialog(
             initialDateMillis = selectedDayMillis,
+            initialRawMessage = prefillMessage,
             clients = clients,
             quotes = quotes,
-            onDismiss = { showNewDialog = false },
-            onSave = { newAppt ->
-                onSaveAppointment(newAppt)
+            onDismiss = {
+                showNewDialog = false
+                prefillMessage = ""
+            },
+            onSave = { newAppt, alsoSaveClient ->
+                onSaveAppointment(newAppt, alsoSaveClient)
                 selectedDayMillis = newAppt.scheduledAt
                 showNewDialog = false
+                prefillMessage = ""
             }
         )
     }
@@ -1077,18 +1229,33 @@ fun ScheduleAndRoutesScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Agenda Semanal y Rutas", style = MaterialTheme.typography.titleLarge)
-                Button(
-                    onClick = { showNewDialog = true },
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Nueva Cita")
+                Text("Agenda y Rutas", style = MaterialTheme.typography.titleLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            prefillMessage = ""
+                            showNewDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Filled.ContentPasteGo, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("De Mensaje", maxLines = 1)
+                    }
+                    Button(
+                        onClick = {
+                            prefillMessage = ""
+                            showNewDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Cita", maxLines = 1)
+                    }
                 }
             }
 
-            // Navegación de semana
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1107,7 +1274,6 @@ fun ScheduleAndRoutesScreen(
                 }
             }
 
-            // Selector de los 7 días de la semana
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1161,7 +1327,6 @@ fun ScheduleAndRoutesScreen(
                 }
             }
 
-            // Asistente de Ruta Automática desde Punto de Partida
             Card(
                 Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
@@ -1256,7 +1421,7 @@ fun ScheduleAndRoutesScreen(
                 ) {
                     Icon(Icons.Filled.EventAvailable, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
                     Text("Sin citas programadas este día", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text("Pulsa 'Nueva Cita' para agendar un cliente o cotización.", style = MaterialTheme.typography.bodySmall)
+                    Text("Comparte un mensaje de WhatsApp/SMS a ApexBid o pulsa 'De Mensaje' para organizarlo automáticamente.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         } else {
@@ -1380,37 +1545,67 @@ fun ScheduleAndRoutesScreen(
 @Composable
 fun NewAppointmentDialog(
     initialDateMillis: Long,
+    initialRawMessage: String = "",
     clients: List<ClientEntity>,
     quotes: List<QuoteEntity>,
     onDismiss: () -> Unit,
-    onSave: (AppointmentEntity) -> Unit
+    onSave: (AppointmentEntity, Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    val cal = remember(initialDateMillis) {
+    val clipboard = LocalClipboardManager.current
+
+    val initialParsed = remember(initialRawMessage) {
+        if (initialRawMessage.isNotBlank()) parseClientMessageToAppointment(initialRawMessage, initialDateMillis) else null
+    }
+
+    val startCal = remember(initialDateMillis, initialParsed) {
         Calendar.getInstance().apply {
-            timeInMillis = initialDateMillis
-            if (get(Calendar.HOUR_OF_DAY) < 7) {
+            timeInMillis = initialParsed?.scheduledAtMillis ?: initialDateMillis
+            if (initialParsed == null && get(Calendar.HOUR_OF_DAY) < 7) {
                 set(Calendar.HOUR_OF_DAY, 9)
                 set(Calendar.MINUTE, 0)
             }
         }
     }
 
-    var year by remember { mutableStateOf(cal.get(Calendar.YEAR)) }
-    var month by remember { mutableStateOf(cal.get(Calendar.MONTH)) }
-    var day by remember { mutableStateOf(cal.get(Calendar.DAY_OF_MONTH)) }
-    var hour by remember { mutableStateOf(cal.get(Calendar.HOUR_OF_DAY)) }
-    var minute by remember { mutableStateOf(cal.get(Calendar.MINUTE)) }
+    var rawMessageInput by remember { mutableStateOf(initialRawMessage) }
+    var year by remember { mutableStateOf(startCal.get(Calendar.YEAR)) }
+    var month by remember { mutableStateOf(startCal.get(Calendar.MONTH)) }
+    var day by remember { mutableStateOf(startCal.get(Calendar.DAY_OF_MONTH)) }
+    var hour by remember { mutableStateOf(startCal.get(Calendar.HOUR_OF_DAY)) }
+    var minute by remember { mutableStateOf(startCal.get(Calendar.MINUTE)) }
 
-    var clientName by remember { mutableStateOf("") }
-    var clientPhone by remember { mutableStateOf("") }
-    var clientAddress by remember { mutableStateOf("") }
-    var workSummary by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
+    var clientName by remember { mutableStateOf(initialParsed?.name.orEmpty()) }
+    var clientPhone by remember { mutableStateOf(initialParsed?.phoneDigits.orEmpty()) }
+    var clientAddress by remember { mutableStateOf(initialParsed?.address.orEmpty()) }
+    var workSummary by remember { mutableStateOf(initialParsed?.workSummary.orEmpty()) }
+    var notes by remember { mutableStateOf(initialParsed?.notes.orEmpty()) }
     var durationStr by remember { mutableStateOf("60") }
+    var alsoSaveClient by remember { mutableStateOf(true) }
 
     var clientMenuExpanded by remember { mutableStateOf(false) }
     var quoteMenuExpanded by remember { mutableStateOf(false) }
+
+    fun applyParsedText(textToParse: String) {
+        if (textToParse.isBlank()) {
+            Toast.makeText(context, "Pega primero el mensaje del cliente", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val parsed = parseClientMessageToAppointment(textToParse, initialDateMillis)
+        if (parsed.name.isNotBlank()) clientName = parsed.name
+        if (parsed.phoneDigits.isNotBlank()) clientPhone = parsed.phoneDigits
+        if (parsed.address.isNotBlank()) clientAddress = parsed.address
+        if (parsed.workSummary.isNotBlank()) workSummary = parsed.workSummary
+        if (parsed.notes.isNotBlank() && notes.isBlank()) notes = parsed.notes
+
+        val c = Calendar.getInstance().apply { timeInMillis = parsed.scheduledAtMillis }
+        year = c.get(Calendar.YEAR)
+        month = c.get(Calendar.MONTH)
+        day = c.get(Calendar.DAY_OF_MONTH)
+        hour = c.get(Calendar.HOUR_OF_DAY)
+        minute = c.get(Calendar.MINUTE)
+        Toast.makeText(context, "Datos extraídos automáticamente", Toast.LENGTH_SHORT).show()
+    }
 
     val dateLabel = remember(year, month, day) {
         val c = Calendar.getInstance().apply { set(year, month, day) }
@@ -1429,6 +1624,53 @@ fun NewAppointmentDialog(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Extractor automático desde mensaje de WhatsApp / SMS / Correo
+                Card(
+                    Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f))
+                ) {
+                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Asistente de Extracción desde Mensaje", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = rawMessageInput,
+                            onValueChange = { rawMessageInput = it },
+                            label = { Text("Pega el mensaje del cliente aquí") },
+                            placeholder = { Text("Ej: Soy Juan Pérez, 305-555-0199, 1200 W 49th St Hialeah, panel upgrade mañana 10am") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 2,
+                            maxLines = 4
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val clip = clipboard.getText()?.text.orEmpty()
+                                    if (clip.isNotBlank()) {
+                                        rawMessageInput = clip
+                                        applyParsedText(clip)
+                                    } else {
+                                        Toast.makeText(context, "El portapapeles está vacío", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Filled.ContentPaste, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Pegar y Extraer", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                            }
+                            FilledTonalButton(
+                                onClick = { applyParsedText(rawMessageInput) },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Extraer Datos", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+
                 if (clients.isNotEmpty()) {
                     Box {
                         OutlinedButton(onClick = { clientMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
@@ -1546,6 +1788,11 @@ fun NewAppointmentDialog(
                         singleLine = true
                     )
                 }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = alsoSaveClient, onCheckedChange = { alsoSaveClient = it })
+                    Text("Guardar también en directorio de Clientes", style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
@@ -1564,7 +1811,8 @@ fun NewAppointmentDialog(
                             notes = notes.trim(),
                             scheduledAt = scheduledCal.timeInMillis,
                             durationMinutes = durationStr.toIntOrNull()?.coerceAtLeast(15) ?: 60
-                        )
+                        ),
+                        alsoSaveClient
                     )
                 },
                 enabled = clientName.isNotBlank()
@@ -2760,7 +3008,7 @@ fun SettingsScreen(
             }
             "v${pInfo.versionName} (Build $code)"
         } catch (ex: Exception) {
-            "v0.9.0"
+            "v1.0.0"
         }
     }
 
@@ -2954,7 +3202,7 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("• Base de datos local Room v5 con Agenda Semanal y Rutas GPS", style = MaterialTheme.typography.bodySmall)
+                Text("• Base de datos local Room v5 con Agenda, Extractor de Mensajes y Rutas", style = MaterialTheme.typography.bodySmall)
                 Text("• Asistente de ruta multi-parada, Home Depot (ES/EN) y Google Lens", style = MaterialTheme.typography.bodySmall)
                 Text("• Exportación PDF bilingüe con firma digital y evidencia fotográfica", style = MaterialTheme.typography.bodySmall)
             }
