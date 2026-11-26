@@ -147,10 +147,15 @@ fun isDarkThemeActive(themeMode: String): Boolean {
         else -> {
             val cal = Calendar.getInstance()
             val minutesOfDay = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-            // Modo oscuro automático de 6:30 PM (1110 min) a 6:30 AM (390 min)
             minutesOfDay >= 18 * 60 + 30 || minutesOfDay < 6 * 60 + 30
         }
     }
+}
+
+fun formatDurationHours(minutes: Int, lang: String): String {
+    val hrs = minutes / 60.0
+    val formatted = if (minutes % 60 == 0) "${minutes / 60}" else "%.1f".format(Locale.US, hrs)
+    return if (lang == "es") "$formatted h" else "$formatted hr"
 }
 
 fun formatUsPhoneInput(raw: String): String {
@@ -455,11 +460,12 @@ fun ApexBidApp(
     val navItems = listOf(
         Triple(tr(lang, "Home", "Inicio"), Icons.Filled.Home, 0),
         Triple(tr(lang, "Schedule", "Agenda"), Icons.Filled.EventNote, 1),
-        Triple(tr(lang, "Business", "Negocio"), Icons.Filled.BarChart, 2),
-        Triple(tr(lang, "Clients", "Clientes"), Icons.Filled.People, 3),
-        Triple(tr(lang, "Estimate", "Cotizar"), Icons.Filled.Calculate, 4),
-        Triple(tr(lang, "History", "Historial"), Icons.Filled.History, 5),
-        Triple(tr(lang, "Settings", "Ajustes"), Icons.Filled.Settings, 6)
+        Triple(tr(lang, "Estimate", "Cotizar"), Icons.Filled.Calculate, 2),
+        Triple(tr(lang, "Quotes", "Historial"), Icons.Filled.History, 3),
+        Triple(tr(lang, "Invoices", "Facturas"), Icons.Filled.ReceiptLong, 4),
+        Triple(tr(lang, "Clients", "Clientes"), Icons.Filled.People, 5),
+        Triple(tr(lang, "Business", "Negocio"), Icons.Filled.BarChart, 6),
+        Triple(tr(lang, "Settings", "Ajustes"), Icons.Filled.Settings, 7)
     )
 
     MaterialTheme(colorScheme = colorScheme) {
@@ -467,7 +473,8 @@ fun ApexBidApp(
             Column(
                 contentModifier
                     .fillMaxSize()
-                    .padding(16.dp)
+                    .statusBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -480,12 +487,12 @@ fun ApexBidApp(
                         modifier = Modifier.weight(1f)
                     ) {
                         if (!isTabletLandscape) {
-                            ApexBidLogo(size = 38.dp)
+                            ApexBidLogo(size = 36.dp)
                         }
                         Column {
                             Text(
                                 text = settings.brandName.ifBlank { "ApexBid" },
-                                style = MaterialTheme.typography.headlineSmall,
+                                style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -499,7 +506,6 @@ fun ApexBidApp(
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        // Botón rápido de contraste / tema (Auto / Claro / Oscuro)
                         FilledTonalIconButton(
                             onClick = {
                                 val nextTheme = when (settings.themeMode) {
@@ -529,7 +535,6 @@ fun ApexBidApp(
                                 modifier = Modifier.size(18.dp)
                             )
                         }
-                        // Selector rápido de idioma EN / ES
                         FilledTonalButton(
                             onClick = {
                                 val nextLang = if (lang == "en") "es" else "en"
@@ -550,7 +555,7 @@ fun ApexBidApp(
                         }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
 
                 when (tab) {
                     0 -> HomeScreen(
@@ -559,8 +564,9 @@ fun ApexBidApp(
                         quotes = quotes,
                         appointments = appointments,
                         isTablet = isTabletLandscape,
-                        onNew = { tab = 4 },
-                        onOpenAgenda = { tab = 1 }
+                        onNew = { tab = 2 },
+                        onOpenAgenda = { tab = 1 },
+                        onOpenInvoices = { tab = 4 }
                     )
                     1 -> ScheduleAndRoutesScreen(
                         lang = lang,
@@ -596,8 +602,69 @@ fun ApexBidApp(
                             scope.launch { db.appointmentDao().delete(appt) }
                         }
                     )
-                    2 -> BusinessOverviewScreen(lang, quotes, isTabletLandscape)
-                    3 -> ClientsScreen(
+                    2 -> QuoteScreen(lang, clients, settings, isTabletLandscape) { q ->
+                        scope.launch {
+                            db.quoteDao().insert(q)
+                            Toast.makeText(context, tr(lang, "Estimate saved", "Cotización guardada"), Toast.LENGTH_SHORT).show()
+                            tab = 3
+                        }
+                    }
+                    3 -> HistoryScreen(
+                        lang = lang,
+                        quotes = quotes,
+                        invoicesOnly = false,
+                        onUpdateQuote = { updated ->
+                            scope.launch { db.quoteDao().update(updated) }
+                        },
+                        onExportPdf = { q, mode ->
+                            try {
+                                val generated = QuotePdf.create(
+                                    context = context,
+                                    quote = q,
+                                    companyLicense = settings.companyLicense,
+                                    companyPhone = settings.companyPhone,
+                                    brandName = settings.brandName
+                                )
+                                Toast.makeText(context, "PDF: ${generated.fileName}", Toast.LENGTH_SHORT).show()
+                                when (mode) {
+                                    "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q, settings.brandName)
+                                    "email" -> sendQuoteByEmail(context, q, generated.uri, settings.brandName)
+                                    "sms" -> sendQuoteBySms(context, q, settings.brandName)
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    )
+                    4 -> HistoryScreen(
+                        lang = lang,
+                        quotes = quotes.filter { it.status == "Facturada" },
+                        invoicesOnly = true,
+                        allQuotesForConversion = quotes.filter { it.status != "Facturada" },
+                        onUpdateQuote = { updated ->
+                            scope.launch { db.quoteDao().update(updated) }
+                        },
+                        onExportPdf = { q, mode ->
+                            try {
+                                val generated = QuotePdf.create(
+                                    context = context,
+                                    quote = q,
+                                    companyLicense = settings.companyLicense,
+                                    companyPhone = settings.companyPhone,
+                                    brandName = settings.brandName
+                                )
+                                Toast.makeText(context, "Invoice PDF: ${generated.fileName}", Toast.LENGTH_SHORT).show()
+                                when (mode) {
+                                    "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q, settings.brandName)
+                                    "email" -> sendQuoteByEmail(context, q, generated.uri, settings.brandName)
+                                    "sms" -> sendQuoteBySms(context, q, settings.brandName)
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    )
+                    5 -> ClientsScreen(
                         lang = lang,
                         clients = clients,
                         isTablet = isTabletLandscape,
@@ -624,40 +691,8 @@ fun ApexBidApp(
                             scope.launch { db.clientDao().delete(client) }
                         }
                     )
-                    4 -> QuoteScreen(lang, clients, settings, isTabletLandscape) { q ->
-                        scope.launch {
-                            db.quoteDao().insert(q)
-                            Toast.makeText(context, tr(lang, "Estimate saved", "Cotización guardada"), Toast.LENGTH_SHORT).show()
-                            tab = 5
-                        }
-                    }
-                    5 -> HistoryScreen(
-                        lang = lang,
-                        quotes = quotes,
-                        onUpdateQuote = { updated ->
-                            scope.launch { db.quoteDao().update(updated) }
-                        },
-                        onExportPdf = { q, mode ->
-                            try {
-                                val generated = QuotePdf.create(
-                                    context = context,
-                                    quote = q,
-                                    companyLicense = settings.companyLicense,
-                                    companyPhone = settings.companyPhone,
-                                    brandName = settings.brandName
-                                )
-                                Toast.makeText(context, "PDF: ${generated.fileName}", Toast.LENGTH_SHORT).show()
-                                when (mode) {
-                                    "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q, settings.brandName)
-                                    "email" -> sendQuoteByEmail(context, q, generated.uri, settings.brandName)
-                                    "sms" -> sendQuoteBySms(context, q, settings.brandName)
-                                }
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    )
-                    6 -> SettingsScreen(
+                    6 -> BusinessOverviewScreen(lang, quotes, appointments, isTabletLandscape)
+                    7 -> SettingsScreen(
                         settings = settings,
                         onSave = { updated ->
                             settings = updated
@@ -733,7 +768,7 @@ fun ApexBidApp(
                     }
                 }
             ) { padding ->
-                mainContent(Modifier.padding(padding))
+                mainContent(Modifier.padding(bottom = padding.calculateBottomPadding()))
             }
         }
     }
@@ -936,6 +971,7 @@ private suspend fun sendOnTheWaySmsWithEta(
     context: Context,
     appt: AppointmentEntity,
     brandName: String,
+    defaultStartAddress: String,
     lang: String
 ) {
     val digits = appt.clientPhone.filter { it.isDigit() }
@@ -948,17 +984,27 @@ private suspend fun sendOnTheWaySmsWithEta(
         return
     }
 
-    val etaMinutes: Int? = withContext(Dispatchers.IO) {
+    val etaInfo: Pair<Int, String>? = withContext(Dispatchers.IO) {
         try {
-            val current = getCurrentDeviceLatLng(context) ?: return@withContext null
             if (appt.clientAddress.isBlank() || !Geocoder.isPresent()) return@withContext null
             val geocoder = Geocoder(context, Locale.getDefault())
+
+            val originCoords: Pair<Double, Double>? = getCurrentDeviceLatLng(context)
+                ?: if (defaultStartAddress.isNotBlank()) {
+                    geocoder.getFromLocationName(defaultStartAddress, 1)?.firstOrNull()?.let { it.latitude to it.longitude }
+                } else null
+
+            if (originCoords == null) return@withContext null
+
             val dest = geocoder.getFromLocationName(appt.clientAddress, 1)?.firstOrNull() ?: return@withContext null
             val results = FloatArray(1)
-            Location.distanceBetween(current.first, current.second, dest.latitude, dest.longitude, results)
+            Location.distanceBetween(originCoords.first, originCoords.second, dest.latitude, dest.longitude, results)
             val miles = results[0] / 1609.34
-            // Estimación urbana realista (~26 mph promedio + 4 min de tráfico/acceso)
-            ((miles / 26.0) * 60.0 + 4.0).roundToInt().coerceAtLeast(5)
+            val mins = ((miles / 26.0) * 60.0 + 4.0).roundToInt().coerceAtLeast(5)
+
+            val arrivalCal = Calendar.getInstance().apply { add(Calendar.MINUTE, mins) }
+            val arrivalClock = SimpleDateFormat("hh:mm a", Locale.US).format(arrivalCal.time)
+            mins to arrivalClock
         } catch (_: Exception) {
             null
         }
@@ -966,14 +1012,14 @@ private suspend fun sendOnTheWaySmsWithEta(
 
     val brand = brandName.ifBlank { "ApexBid" }
     val smsBody = if (lang == "es") {
-        if (etaMinutes != null) {
-            "Hola ${appt.clientName}, le saludamos de $brand. Vamos en camino hacia su dirección (${appt.clientAddress}). Tiempo estimado de llegada: ~$etaMinutes min."
+        if (etaInfo != null) {
+            "Hola ${appt.clientName}, le saludamos de $brand. Vamos en camino hacia su dirección (${appt.clientAddress}). Tiempo de viaje: ~${etaInfo.first} min (hora estimada de llegada: ${etaInfo.second})."
         } else {
             "Hola ${appt.clientName}, le saludamos de $brand. Confirmamos que ya vamos en camino hacia su ubicación para su servicio eléctrico."
         }
     } else {
-        if (etaMinutes != null) {
-            "Hello ${appt.clientName}, this is $brand. We are on our way to your location (${appt.clientAddress}). Estimated arrival time: ~$etaMinutes mins."
+        if (etaInfo != null) {
+            "Hello ${appt.clientName}, this is $brand. We are on our way to your location (${appt.clientAddress}). Travel time: ~${etaInfo.first} mins (estimated arrival: ${etaInfo.second})."
         } else {
             "Hello ${appt.clientName}, this is $brand. Confirming we are on our way to your location for your electrical service."
         }
@@ -1330,7 +1376,8 @@ fun HomeScreen(
     appointments: List<AppointmentEntity>,
     isTablet: Boolean,
     onNew: () -> Unit,
-    onOpenAgenda: () -> Unit
+    onOpenAgenda: () -> Unit,
+    onOpenInvoices: () -> Unit
 ) {
     val money = NumberFormat.getCurrencyInstance(Locale.US)
     val timeFmt = remember { SimpleDateFormat("hh:mm a", Locale.US) }
@@ -1338,16 +1385,17 @@ fun HomeScreen(
     val approved = quotes.count { it.status == "Aprobada" }
     val invoiced = quotes.count { it.status == "Facturada" }
     val invoicedTotal = quotes.filter { it.status == "Facturada" }.sumOf { it.total }
+    val completedJobs = appointments.count { it.status == "Completada" }
     val todayAppts = remember(appointments) {
         val now = System.currentTimeMillis()
         appointments.filter { isSameCalendarDay(it.scheduledAt, now) }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(tr(lang, "Dashboard", "Panel principal"), style = MaterialTheme.typography.titleLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(tr(lang, "Clients", "Clientes"), clientCount.toString(), Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatCard(tr(lang, "Today's Visits", "Citas Hoy"), todayAppts.size.toString(), Modifier.weight(1f))
+            StatCard(tr(lang, "Completed Jobs", "Completadas"), "$completedJobs / ${appointments.size}", Modifier.weight(1f))
             if (isTablet) {
                 StatCard(tr(lang, "Total Invoiced", "Total Facturado"), money.format(invoicedTotal), Modifier.weight(1.3f))
             }
@@ -1364,12 +1412,15 @@ fun HomeScreen(
                     Text(tr(lang, "Pending", "Pendientes"), style = MaterialTheme.typography.bodySmall)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("$approved", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF2D8A78))
+                    Text("$approved", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
                     Text(tr(lang, "Approved", "Aprobadas"), style = MaterialTheme.typography.bodySmall)
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("$invoiced", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color(0xFF145A72))
-                    Text(tr(lang, "Invoiced", "Facturadas"), style = MaterialTheme.typography.bodySmall)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.clickable { onOpenInvoices() }
+                ) {
+                    Text("$invoiced", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(tr(lang, "Invoices", "Facturas"), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -1395,18 +1446,23 @@ fun HomeScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onNew, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.Add, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text(tr(lang, "New Estimate", "Cotizar"), maxLines = 1)
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(tr(lang, "Estimate", "Cotizar"), maxLines = 1)
+            }
+            OutlinedButton(onClick = onOpenInvoices, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.ReceiptLong, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(tr(lang, "Invoices", "Facturas"), maxLines = 1)
             }
             OutlinedButton(onClick = onOpenAgenda, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.Route, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text(tr(lang, "Schedule & Route", "Agenda y Ruta"), maxLines = 1)
+                Icon(Icons.Filled.Route, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(tr(lang, "Schedule", "Agenda"), maxLines = 1)
             }
         }
         Text(
-            tr(lang, "Local mode active. All data is stored securely on this device.", "Modo local activo. Datos almacenados de forma segura en este dispositivo."),
+            tr(lang, "Local mode active · $clientCount clients stored securely on device.", "Modo local activo · $clientCount clientes almacenados en este dispositivo."),
             style = MaterialTheme.typography.bodySmall
         )
     }
@@ -1415,9 +1471,9 @@ fun HomeScreen(
 @Composable
 fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
     Card(modifier) {
-        Column(Modifier.padding(16.dp)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
-            Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Column(Modifier.padding(14.dp)) {
+            Text(label, style = MaterialTheme.typography.bodySmall)
+            Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1509,7 +1565,6 @@ fun ScheduleAndRoutesScreen(
         }
     }
 
-    // Vista de 2 semanas completas (14 días: Semana 1 + Semana 2)
     val twoWeeksDays = remember(weekOffset) {
         val cal = Calendar.getInstance().apply {
             firstDayOfWeek = Calendar.MONDAY
@@ -1530,6 +1585,12 @@ fun ScheduleAndRoutesScreen(
         appointments
             .filter { isSameCalendarDay(it.scheduledAt, selectedDayMillis) }
             .sortedWith(compareBy({ if (it.routeOrder > 0) it.routeOrder else Int.MAX_VALUE }, { it.scheduledAt }))
+    }
+
+    val completedTotalStats = remember(appointments) {
+        val completed = appointments.count { it.status == "Completada" }
+        val total = appointments.size
+        completed to total
     }
 
     if (showNewDialog) {
@@ -1562,7 +1623,7 @@ fun ScheduleAndRoutesScreen(
             clients = clients,
             quotes = quotes,
             onDismiss = { editingAppointment = null },
-            onSave = { updatedAppt, alsoSaveClient ->
+            onSave = { updatedAppt, _ ->
                 onUpdateAppointment(updatedAppt)
                 selectedDayMillis = updatedAppt.scheduledAt
                 editingAppointment = null
@@ -1578,7 +1639,19 @@ fun ScheduleAndRoutesScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(tr(lang, "2-Week Schedule & Routes", "Agenda 2 Semanas y Rutas"), style = MaterialTheme.typography.titleLarge)
+                Column {
+                    Text(tr(lang, "2-Week Schedule", "Agenda 2 Semanas"), style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        text = tr(
+                            lang,
+                            "Completed stats: ${completedTotalStats.first} / ${completedTotalStats.second} jobs",
+                            "Estadística completadas: ${completedTotalStats.first} / ${completedTotalStats.second} citas"
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
                         onClick = {
@@ -1605,7 +1678,6 @@ fun ScheduleAndRoutesScreen(
                 }
             }
 
-            // Navegación del bloque de 2 semanas
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1628,7 +1700,6 @@ fun ScheduleAndRoutesScreen(
                 }
             }
 
-            // Cuadrícula de 2 semanas (Fila 1: días 0..6, Fila 2: días 7..13)
             val weeksChunked = twoWeeksDays.chunked(7)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 weeksChunked.forEach { weekRow ->
@@ -1739,8 +1810,9 @@ fun ScheduleAndRoutesScreen(
 
                     Button(
                         onClick = {
-                            if (dayAppointments.none { it.clientAddress.isNotBlank() }) {
-                                Toast.makeText(context, tr(lang, "Add at least one appointment with an address", "Agrega al menos una cita con dirección"), Toast.LENGTH_SHORT).show()
+                            val activeStops = dayAppointments.filter { it.clientAddress.isNotBlank() && it.status != "Completada" }
+                            if (activeStops.isEmpty()) {
+                                Toast.makeText(context, tr(lang, "No pending stops with address for this day", "No hay paradas pendientes con dirección este día"), Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
                             if (!useCurrentGps && customStartAddress.isBlank()) {
@@ -1751,7 +1823,7 @@ fun ScheduleAndRoutesScreen(
                             scope.launch {
                                 val optimized = optimizeAppointmentsRoute(
                                     context = context,
-                                    dayAppointments = dayAppointments,
+                                    dayAppointments = activeStops,
                                     useCurrentGps = useCurrentGps,
                                     customOriginAddress = customStartAddress
                                 )
@@ -1773,7 +1845,7 @@ fun ScheduleAndRoutesScreen(
                     ) {
                         Icon(Icons.Filled.Directions, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
-                        val stopsCount = dayAppointments.count { it.clientAddress.isNotBlank() }
+                        val stopsCount = dayAppointments.count { it.clientAddress.isNotBlank() && it.status != "Completada" }
                         Text(
                             if (isOptimizingRoute) tr(lang, "Calculating optimal route...", "Calculando ruta óptima...")
                             else tr(lang, "Build Auto Route ($stopsCount stops)", "Crear Ruta Automática ($stopsCount paradas)")
@@ -1805,7 +1877,15 @@ fun ScheduleAndRoutesScreen(
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(dayAppointments, key = { it.id }) { appt ->
-                    Card(Modifier.fillMaxWidth()) {
+                    val isCompleted = appt.status == "Completada"
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        colors = if (isCompleted) {
+                            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        } else {
+                            CardDefaults.cardColors()
+                        }
+                    ) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(
                                 Modifier.fillMaxWidth(),
@@ -1813,7 +1893,7 @@ fun ScheduleAndRoutesScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    if (appt.routeOrder > 0) {
+                                    if (appt.routeOrder > 0 && !isCompleted) {
                                         Surface(
                                             color = MaterialTheme.colorScheme.primary,
                                             shape = RoundedCornerShape(6.dp)
@@ -1828,24 +1908,45 @@ fun ScheduleAndRoutesScreen(
                                         }
                                     }
                                     Text(
-                                        text = "${timeFmt.format(Date(appt.scheduledAt))} (${appt.durationMinutes} min)",
+                                        text = "${timeFmt.format(Date(appt.scheduledAt))} (${formatDurationHours(appt.durationMinutes, lang)})",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.secondary
                                     )
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    IconButton(
-                                        onClick = { editingAppointment = appt },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(Icons.Filled.Edit, contentDescription = tr(lang, "Edit", "Editar"), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                                    }
-                                    IconButton(
-                                        onClick = { onDeleteAppointment(appt) },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (isCompleted) {
+                                        Surface(
+                                            color = Color(0xFF2D8A78).copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
+                                                Spacer(Modifier.width(3.dp))
+                                                Text(
+                                                    tr(lang, "Completed · Locked", "Completada · Bloqueada"),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.secondary
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        IconButton(
+                                            onClick = { editingAppointment = appt },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Edit, contentDescription = tr(lang, "Edit", "Editar"), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                        IconButton(
+                                            onClick = { onDeleteAppointment(appt) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp))
+                                        }
                                     }
                                 }
                             }
@@ -1868,26 +1969,40 @@ fun ScheduleAndRoutesScreen(
                                 Text("${tr(lang, "Note", "Nota")}: ${appt.notes}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                val statuses = listOf(
-                                    "Programada" to tr(lang, "Scheduled", "Programada"),
-                                    "En camino" to tr(lang, "En Route", "En camino"),
-                                    "Completada" to tr(lang, "Completed", "Completada")
-                                )
-                                statuses.forEach { (dbVal, label) ->
-                                    FilterChip(
-                                        selected = appt.status == dbVal,
-                                        onClick = {
-                                            val updated = appt.copy(status = dbVal)
-                                            onUpdateAppointment(updated)
-                                            if (dbVal == "En camino") {
-                                                scope.launch {
-                                                    sendOnTheWaySmsWithEta(context, updated, settings.brandName, lang)
-                                                }
-                                            }
-                                        },
-                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                            if (!isCompleted) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    val statuses = listOf(
+                                        "Programada" to tr(lang, "Scheduled", "Programada"),
+                                        "En camino" to tr(lang, "En Route", "En camino"),
+                                        "Completada" to tr(lang, "Completed", "Completada")
                                     )
+                                    statuses.forEach { (dbVal, label) ->
+                                        FilterChip(
+                                            selected = appt.status == dbVal,
+                                            onClick = {
+                                                val updated = appt.copy(status = dbVal)
+                                                onUpdateAppointment(updated)
+                                                if (dbVal == "En camino") {
+                                                    scope.launch {
+                                                        sendOnTheWaySmsWithEta(
+                                                            context = context,
+                                                            appt = updated,
+                                                            brandName = settings.brandName,
+                                                            defaultStartAddress = settings.defaultStartAddress,
+                                                            lang = lang
+                                                        )
+                                                    }
+                                                } else if (dbVal == "Completada") {
+                                                    Toast.makeText(
+                                                        context,
+                                                        tr(lang, "Job marked as completed and locked", "Trabajo marcado como completado y bloqueado"),
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            },
+                                            label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                        )
+                                    }
                                 }
                             }
 
@@ -1991,7 +2106,11 @@ fun AppointmentFormDialog(
     var clientAddress by remember { mutableStateOf(existingAppointment?.clientAddress ?: initialParsed?.address.orEmpty()) }
     var workSummary by remember { mutableStateOf(existingAppointment?.workSummary ?: initialParsed?.workSummary.orEmpty()) }
     var notes by remember { mutableStateOf(existingAppointment?.notes ?: initialParsed?.notes.orEmpty()) }
-    var durationStr by remember { mutableStateOf((existingAppointment?.durationMinutes ?: 60).toString()) }
+    var durationHoursStr by remember {
+        val initialMins = existingAppointment?.durationMinutes ?: 60
+        val hrsText = if (initialMins % 60 == 0) "${initialMins / 60}" else "%.1f".format(Locale.US, initialMins / 60.0)
+        mutableStateOf(hrsText)
+    }
     var alsoSaveClient by remember { mutableStateOf(!isEditing) }
 
     var clientMenuExpanded by remember { mutableStateOf(false) }
@@ -2265,11 +2384,12 @@ fun AppointmentFormDialog(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
-                        value = durationStr,
-                        onValueChange = { durationStr = it.filter { c -> c.isDigit() }.take(3) },
-                        label = { Text(tr(lang, "Duration (min)", "Duración (min)")) },
+                        value = durationHoursStr,
+                        onValueChange = { durationHoursStr = it.filter { c -> c.isDigit() || c == '.' }.take(4) },
+                        label = { Text(tr(lang, "Duration (hrs)", "Duración (horas)")) },
+                        placeholder = { Text("1.5") },
                         modifier = Modifier.weight(1f),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true
                     )
                     OutlinedTextField(
@@ -2296,6 +2416,8 @@ fun AppointmentFormDialog(
                         set(year, month, day, hour, minute, 0)
                         set(Calendar.MILLISECOND, 0)
                     }
+                    val hoursVal = durationHoursStr.toDoubleOrNull()?.coerceAtLeast(0.25) ?: 1.0
+                    val durationMins = (hoursVal * 60.0).roundToInt()
                     val result = if (isEditing) {
                         existingAppointment!!.copy(
                             clientName = clientName.trim(),
@@ -2304,7 +2426,7 @@ fun AppointmentFormDialog(
                             workSummary = workSummary.trim().ifBlank { "Electrical service visit" },
                             notes = notes.trim(),
                             scheduledAt = scheduledCal.timeInMillis,
-                            durationMinutes = durationStr.toIntOrNull()?.coerceAtLeast(15) ?: 60
+                            durationMinutes = durationMins
                         )
                     } else {
                         AppointmentEntity(
@@ -2314,7 +2436,7 @@ fun AppointmentFormDialog(
                             workSummary = workSummary.trim().ifBlank { "Electrical service visit" },
                             notes = notes.trim(),
                             scheduledAt = scheduledCal.timeInMillis,
-                            durationMinutes = durationStr.toIntOrNull()?.coerceAtLeast(15) ?: 60
+                            durationMinutes = durationMins
                         )
                     }
                     onSave(result, alsoSaveClient)
@@ -2334,12 +2456,17 @@ fun AppointmentFormDialog(
 }
 
 @Composable
-fun BusinessOverviewScreen(lang: String, quotes: List<QuoteEntity>, isTablet: Boolean) {
+fun BusinessOverviewScreen(
+    lang: String,
+    quotes: List<QuoteEntity>,
+    appointments: List<AppointmentEntity>,
+    isTablet: Boolean
+) {
     val money = NumberFormat.getCurrencyInstance(Locale.US)
     val totalInvoiced = quotes.filter { it.status == "Facturada" }.sumOf { it.total }
     val totalApproved = quotes.filter { it.status == "Aprobada" }.sumOf { it.total }
     val totalPending = quotes.filter { it.status == "Pendiente" }.sumOf { it.total }
-    val avgTicket = if (quotes.isNotEmpty()) quotes.sumOf { it.total } / quotes.size else 0.0
+    val completedJobs = appointments.count { it.status == "Completada" }
 
     val monthlyData = remember(quotes) {
         val fmt = SimpleDateFormat("MMM", Locale.US)
@@ -2411,8 +2538,8 @@ fun BusinessOverviewScreen(lang: String, quotes: List<QuoteEntity>, isTablet: Bo
                 }
                 Card(Modifier.weight(1f)) {
                     Column(Modifier.padding(14.dp)) {
-                        Text(tr(lang, "Average Ticket", "Ticket Promedio"), style = MaterialTheme.typography.labelMedium)
-                        Text(money.format(avgTicket), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(tr(lang, "Completed Jobs", "Citas Completadas"), style = MaterialTheme.typography.labelMedium)
+                        Text("$completedJobs / ${appointments.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -3075,7 +3202,6 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
 
     val rightColumn: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            // Campo único de descripción según el idioma seleccionado (más limpio y directo)
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -3104,20 +3230,10 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
             OutlinedTextField(
                 value = if (lang == "es") descEs else descEn,
                 onValueChange = { newText ->
-                    if (lang == "es") {
-                        descEs = newText
-                    } else {
-                        descEn = newText
-                    }
+                    if (lang == "es") descEs = newText else descEn = newText
                 },
                 label = {
-                    Text(
-                        tr(
-                            lang,
-                            "Work Description (English)",
-                            "Descripción del trabajo (Español)"
-                        )
-                    )
+                    Text(tr(lang, "Work Description (English)", "Descripción del trabajo (Español)"))
                 },
                 trailingIcon = {
                     IconButton(onClick = {
@@ -3287,6 +3403,8 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
 fun HistoryScreen(
     lang: String,
     quotes: List<QuoteEntity>,
+    invoicesOnly: Boolean = false,
+    allQuotesForConversion: List<QuoteEntity> = emptyList(),
     onUpdateQuote: (QuoteEntity) -> Unit,
     onExportPdf: (QuoteEntity, String) -> Unit
 ) {
@@ -3294,6 +3412,7 @@ fun HistoryScreen(
     val money = NumberFormat.getCurrencyInstance(Locale.US)
     val dateFmt = remember { SimpleDateFormat("MM/dd/yyyy", Locale.US) }
     var signingQuote by remember { mutableStateOf<QuoteEntity?>(null) }
+    var convertExpanded by remember { mutableStateOf(false) }
 
     if (signingQuote != null) {
         SignatureDialog(
@@ -3312,11 +3431,67 @@ fun HistoryScreen(
         )
     }
 
-    Column {
-        Text(tr(lang, "Estimates & Invoices History", "Historial de cotizaciones y facturas"), style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (invoicesOnly) tr(lang, "Invoices (${quotes.size})", "Facturas (${quotes.size})")
+                else tr(lang, "Estimates & Quotes (${quotes.size})", "Historial de Cotizaciones (${quotes.size})"),
+                style = MaterialTheme.typography.titleLarge
+            )
+            if (invoicesOnly && allQuotesForConversion.isNotEmpty()) {
+                Box {
+                    FilledTonalButton(
+                        onClick = { convertExpanded = true },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(tr(lang, "From Estimate", "Facturar Cotización"), maxLines = 1)
+                    }
+                    DropdownMenu(expanded = convertExpanded, onDismissRequest = { convertExpanded = false }) {
+                        allQuotesForConversion.forEach { est ->
+                            DropdownMenuItem(
+                                text = { Text("${est.clientName} — ${money.format(est.total)}") },
+                                onClick = {
+                                    onUpdateQuote(est.copy(status = "Facturada"))
+                                    convertExpanded = false
+                                    Toast.makeText(context, tr(lang, "Converted to Invoice", "Convertida a Factura"), Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (invoicesOnly) {
+            val totalBilled = quotes.sumOf { it.total }
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+            ) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(tr(lang, "Total Billed / Invoiced", "Total Facturado"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(money.format(totalBilled), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+
         if (quotes.isEmpty()) {
-            Text(tr(lang, "No saved estimates yet.", "Todavía no hay registros guardados."))
+            Text(
+                if (invoicesOnly) tr(lang, "No invoices yet. Convert an approved estimate or mark one as Invoiced.", "Todavía no hay facturas. Convierte una cotización existente arriba.")
+                else tr(lang, "No saved estimates yet.", "Todavía no hay registros guardados.")
+            )
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(quotes, key = { it.id }) { q ->
@@ -3660,7 +3835,7 @@ fun SettingsScreen(
             }
             "v${pInfo.versionName} (Build $code)"
         } catch (ex: Exception) {
-            "v1.2.0"
+            "v1.3.0"
         }
     }
 
@@ -3670,7 +3845,6 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        // Apariencia y Contraste (Auto por hora del día / Claro / Oscuro)
         Text(tr(lang, "Display & Contrast Theme", "Apariencia y Contraste"), style = MaterialTheme.typography.titleLarge)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -3712,7 +3886,6 @@ fun SettingsScreen(
 
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
 
-        // Idioma
         Text(tr(lang, "Language / Idioma", "Idioma / Language"), style = MaterialTheme.typography.titleLarge)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -3828,7 +4001,7 @@ fun SettingsScreen(
                 PermissionStatusRow(
                     lang = lang,
                     title = tr(lang, "Location", "Ubicación"),
-                    purpose = tr(lang, "Optimize daily routes and calculate live ETA.", "Optimizar rutas diarias y calcular tiempo estimado de llegada."),
+                    purpose = tr(lang, "Optimize daily routes and calculate live GPS arrival time.", "Optimizar rutas diarias y calcular hora estimada de llegada GPS."),
                     granted = hasLocation
                 )
                 PermissionStatusRow(
@@ -3944,8 +4117,8 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("• 2-Week Calendar View, Appointment Editor & Auto-ETA SMS on En Route", style = MaterialTheme.typography.bodySmall)
-                Text("• Auto Day/Night Dark Mode, Single-Language Scope Editor & AI Writer", style = MaterialTheme.typography.bodySmall)
+                Text("• Status-bar safe layout, Invoices Tab & Locked Completed Jobs Stats", style = MaterialTheme.typography.bodySmall)
+                Text("• Live GPS Arrival Clock (ETA) SMS on En Route & Duration in Hours", style = MaterialTheme.typography.bodySmall)
                 Text("• Bilingual PDF export with digital signature & photo evidence", style = MaterialTheme.typography.bodySmall)
             }
         }
