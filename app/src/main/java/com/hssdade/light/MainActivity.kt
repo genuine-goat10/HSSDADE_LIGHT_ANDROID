@@ -44,9 +44,9 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -71,6 +71,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
@@ -227,7 +228,7 @@ fun looksLikeClientMessageOrAddress(text: String): Boolean {
         RegexOption.IGNORE_CASE
     ).containsMatchIn(clean)
     val hasServiceKeyword = Regex(
-        """\b(?:breaker|panel|outlet|gfci|afci|switch|fan|charger|ev|light|recessed|wire|wiring|troubleshoot|estimate|cotizaci[oó]n|electric|el[eé]ctric|ma[nñ]ana|tomorrow|hoy|today)\b""",
+        """\b(?:breaker|panel|outlet|gfci|afci|switch|fan|charger|ev|light|recessed|wire|wiring|troubleshoot|estimate|cotizaci[oó]n|electric|el[eé]ctric|mini[\s-]?split|ac|a/c|ma[nñ]ana|tomorrow|hoy|today)\b""",
         RegexOption.IGNORE_CASE
     ).containsMatchIn(clean)
     return hasPhone || hasStreet || hasServiceKeyword
@@ -629,13 +630,14 @@ fun ApexBidApp(
                                     quote = q,
                                     companyLicense = settings.companyLicense,
                                     companyPhone = settings.companyPhone,
-                                    brandName = settings.brandName
+                                    brandName = settings.brandName,
+                                    languageCode = lang
                                 )
                                 Toast.makeText(context, "PDF: ${generated.fileName}", Toast.LENGTH_SHORT).show()
                                 when (mode) {
-                                    "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q, settings.brandName)
-                                    "email" -> sendQuoteByEmail(context, q, generated.uri, settings.brandName)
-                                    "sms" -> sendQuoteBySms(context, q, settings.brandName)
+                                    "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q, settings.brandName, lang)
+                                    "email" -> sendQuoteByEmail(context, q, generated.uri, settings.brandName, lang)
+                                    "sms" -> sendQuoteBySms(context, q, settings.brandName, lang)
                                 }
                             } catch (e: Exception) {
                                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -657,13 +659,14 @@ fun ApexBidApp(
                                     quote = q,
                                     companyLicense = settings.companyLicense,
                                     companyPhone = settings.companyPhone,
-                                    brandName = settings.brandName
+                                    brandName = settings.brandName,
+                                    languageCode = lang
                                 )
-                                Toast.makeText(context, "Invoice PDF: ${generated.fileName}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "PDF: ${generated.fileName}", Toast.LENGTH_SHORT).show()
                                 when (mode) {
-                                    "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q, settings.brandName)
-                                    "email" -> sendQuoteByEmail(context, q, generated.uri, settings.brandName)
-                                    "sms" -> sendQuoteBySms(context, q, settings.brandName)
+                                    "share" -> if (generated.uri != null) sharePdfGeneral(context, generated.uri, q, settings.brandName, lang)
+                                    "email" -> sendQuoteByEmail(context, q, generated.uri, settings.brandName, lang)
+                                    "sms" -> sendQuoteBySms(context, q, settings.brandName, lang)
                                 }
                             } catch (e: Exception) {
                                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -851,7 +854,7 @@ private fun launchVisualIdentifier(context: Context, imageUri: Uri) {
 }
 
 private fun buildSmartDescriptions(
-    selectedServices: List<ServiceItem>,
+    selectedServicesWithQty: List<Pair<ServiceItem, Int>>,
     currentEs: String,
     currentEn: String,
     notes: String
@@ -878,10 +881,16 @@ private fun buildSmartDescriptions(
         "upgrade" to "actualización de capacidad"
     )
 
-    if (selectedServices.isNotEmpty()) {
-        val categories = selectedServices.map { it.category }.distinct()
-        val esItems = selectedServices.joinToString("\n") { "• ${it.nameEs}." }
-        val enItems = selectedServices.joinToString("\n") { "• ${it.nameEn}." }
+    if (selectedServicesWithQty.isNotEmpty()) {
+        val categories = selectedServicesWithQty.map { it.first.category }.distinct()
+        val esItems = selectedServicesWithQty.joinToString("\n") { (svc, q) ->
+            val prefix = if (q > 1) "(x$q) " else ""
+            "• $prefix${svc.nameEs}."
+        }
+        val enItems = selectedServicesWithQty.joinToString("\n") { (svc, q) ->
+            val prefix = if (q > 1) "(x$q) " else ""
+            "• $prefix${svc.nameEn}."
+        }
 
         val technicalDetailsEn = mutableListOf<String>()
         val technicalDetailsEs = mutableListOf<String>()
@@ -891,8 +900,8 @@ private fun buildSmartDescriptions(
             technicalDetailsEs.add("Incluye balanceo de cargas, verificación de torque en barras y terminales, rotulación de circuitos e inspección de puesta a tierra.")
         }
         if (categories.any { it.contains("Circuitos", ignoreCase = true) }) {
-            technicalDetailsEn.add("Includes dedicated home-run wiring sizing per amperage load, proper conduit/box mounting, and overcurrent protection.")
-            technicalDetailsEs.add("Incluye calibre de conductor dedicado según amperaje de carga, fijación de canalización/cajas y protección contra sobrecorriente.")
+            technicalDetailsEn.add("Includes dedicated home-run wiring sizing per amperage load, proper conduit/box/disconnect mounting, and overcurrent protection.")
+            technicalDetailsEs.add("Incluye calibre de conductor dedicado según amperaje de carga, fijación de canalización/cajas/desconectador y protección contra sobrecorriente.")
         }
         if (categories.any { it.contains("Iluminación", ignoreCase = true) }) {
             technicalDetailsEn.add("Includes structural box support check, clean ceiling/wall cutouts, switch control integration, and operational dimming/balance test.")
@@ -1195,55 +1204,75 @@ private fun launchMultiStopGoogleMapsRoute(
     }
 }
 
-private fun sharePdfGeneral(context: Context, uri: Uri, quote: QuoteEntity, brandName: String) {
+private fun sharePdfGeneral(context: Context, uri: Uri, quote: QuoteEntity, brandName: String, lang: String = "en") {
     val brand = brandName.ifBlank { "ApexBid" }
+    val isInvoice = quote.status == "Facturada"
+    val docType = if (isInvoice) tr(lang, "Invoice", "Factura") else tr(lang, "Estimate", "Cotización")
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "application/pdf"
         putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_SUBJECT, "Estimate / Cotización - $brand (${quote.clientName})")
+        putExtra(Intent.EXTRA_SUBJECT, "$docType - $brand (${quote.clientName})")
         if (quote.clientEmail.isNotBlank()) {
             putExtra(Intent.EXTRA_EMAIL, arrayOf(quote.clientEmail))
         }
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "Share PDF / Compartir PDF"))
+    context.startActivity(Intent.createChooser(intent, tr(lang, "Share PDF", "Compartir PDF")))
 }
 
-private fun sendQuoteByEmail(context: Context, quote: QuoteEntity, pdfUri: Uri?, brandName: String) {
+private fun sendQuoteByEmail(context: Context, quote: QuoteEntity, pdfUri: Uri?, brandName: String, lang: String = "en") {
     val brand = brandName.ifBlank { "ApexBid" }
     val money = NumberFormat.getCurrencyInstance(Locale.US).format(quote.total)
-    val docType = if (quote.status == "Facturada") "Invoice / Factura" else "Estimate / Cotización"
-    val body = """
-        Dear ${quote.clientName} / Estimado/a ${quote.clientName},
-        
-        Please find attached your electrical $docType from $brand for a total of $money.
-        Adjuntamos su $docType eléctrica de $brand por un total de $money.
-        
-        Services / Servicios:
-        ${quote.serviceName}
-        
-        Thank you for your business / Gracias por su confianza.
-    """.trimIndent()
+    val isInvoice = quote.status == "Facturada"
+    val docType = if (isInvoice) tr(lang, "Invoice", "Factura") else tr(lang, "Estimate", "Cotización")
+    val body = if (lang == "es") {
+        """
+            Estimado/a ${quote.clientName},
+            
+            Adjuntamos su $docType eléctrica de $brand por un total de $money.
+            
+            Servicios:
+            ${quote.serviceName}
+            
+            Gracias por su confianza.
+        """.trimIndent()
+    } else {
+        """
+            Dear ${quote.clientName},
+            
+            Please find attached your electrical $docType from $brand for a total of $money.
+            
+            Services:
+            ${quote.serviceName}
+            
+            Thank you for your business.
+        """.trimIndent()
+    }
 
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "application/pdf"
         if (quote.clientEmail.isNotBlank()) {
             putExtra(Intent.EXTRA_EMAIL, arrayOf(quote.clientEmail))
         }
-        putExtra(Intent.EXTRA_SUBJECT, "Electrical $docType - $brand")
+        putExtra(Intent.EXTRA_SUBJECT, "${tr(lang, "Electrical", "Servicio Eléctrico")} $docType - $brand")
         putExtra(Intent.EXTRA_TEXT, body)
         if (pdfUri != null) {
             putExtra(Intent.EXTRA_STREAM, pdfUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }
-    context.startActivity(Intent.createChooser(intent, "Send Email / Enviar Correo"))
+    context.startActivity(Intent.createChooser(intent, tr(lang, "Send Email", "Enviar Correo")))
 }
 
-private fun sendQuoteBySms(context: Context, quote: QuoteEntity, brandName: String) {
+private fun sendQuoteBySms(context: Context, quote: QuoteEntity, brandName: String, lang: String = "en") {
     val brand = brandName.ifBlank { "ApexBid" }
     val money = NumberFormat.getCurrencyInstance(Locale.US).format(quote.total)
-    val message = "Hello ${quote.clientName}, greetings from $brand. Your electrical estimate (${quote.serviceName.take(55)}) is $money. Status: ${quote.status}."
+    val docType = if (quote.status == "Facturada") tr(lang, "invoice", "factura") else tr(lang, "estimate", "cotización")
+    val message = if (lang == "es") {
+        "Hola ${quote.clientName}, le saludamos de $brand. Su $docType eléctrica (${quote.serviceName.take(55)}) es por $money."
+    } else {
+        "Hello ${quote.clientName}, greetings from $brand. Your electrical $docType (${quote.serviceName.take(55)}) is $money."
+    }
     val smsUri = Uri.parse("smsto:${Uri.encode(quote.clientPhone)}")
     val intent = Intent(Intent.ACTION_SENDTO, smsUri).apply {
         putExtra("sms_body", message)
@@ -1251,7 +1280,7 @@ private fun sendQuoteBySms(context: Context, quote: QuoteEntity, brandName: Stri
     try {
         context.startActivity(intent)
     } catch (e: Exception) {
-        Toast.makeText(context, "SMS app not found", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, tr(lang, "SMS app not found", "No se encontró aplicación de mensajes SMS"), Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -2501,7 +2530,7 @@ fun BusinessOverviewScreen(
         val categories = listOf(
             "Receptáculos e interruptores" to tr(lang, "Outlets & Switches", "Receptáculos e interruptores"),
             "Iluminación y ventilación" to tr(lang, "Lighting & Fans", "Iluminación y ventilación"),
-            "Circuitos nuevos" to tr(lang, "New Circuits", "Circuitos nuevos"),
+            "Circuitos nuevos" to tr(lang, "New Circuits & Mini-Splits", "Circuitos nuevos y Mini-Splits"),
             "Paneles, protección y diagnóstico" to tr(lang, "Panels, Protection & Diagnostics", "Paneles, protección y diagnóstico")
         )
         categories.map { (catKey, displayCat) ->
@@ -2869,7 +2898,10 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
     var clientEmail by remember { mutableStateOf("") }
     var clientAddress by remember { mutableStateOf("") }
     var clientExpanded by remember { mutableStateOf(false) }
-    val selectedIds = remember { mutableStateListOf<Int>() }
+
+    // Mapa reactivo: ID del servicio -> Cantidad individual (ej. 4 tomacorrientes, 2 abanicos, 1 mini-split)
+    val selectedQuantities = remember { mutableStateMapOf<Int, Int>() }
+
     var showCatalogSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var descEs by remember { mutableStateOf("") }
@@ -2938,13 +2970,17 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
         }
     }
 
-    val selected = ServiceCatalog.all.filter { it.id in selectedIds }
-    val quantity = qty.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
+    val selectedWithQty = ServiceCatalog.all.mapNotNull { svc ->
+        val count = selectedQuantities[svc.id] ?: 0
+        if (count > 0) svc to count else null
+    }
+
+    val globalMultiplier = qty.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
     val additionalMaterials = extraMaterials.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
 
-    val laborHours = selected.sumOf { it.hours }
-    val materials = selected.sumOf { it.materials } + additionalMaterials
-    val cost = (laborHours * settings.hourlyOperatingCost + materials) * quantity
+    val laborHours = selectedWithQty.sumOf { (svc, count) -> svc.hours * count }
+    val materials = selectedWithQty.sumOf { (svc, count) -> svc.materials * count } + additionalMaterials
+    val cost = (laborHours * settings.hourlyOperatingCost + materials) * globalMultiplier
     val margin = settings.marginPercent / 100.0
     val rawTotal = if (cost > 0 && margin < 1) cost / (1 - margin) else 0.0
     val total = if (settings.applyMinimumVisit && rawTotal > 0 && rawTotal < settings.minimumVisit) {
@@ -2954,20 +2990,32 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
     }
 
     val money = NumberFormat.getCurrencyInstance(Locale.US)
-    val serviceNamesEs = selected.joinToString("\n") { "• ${it.nameEs}" }
-    val serviceNamesEn = selected.joinToString("\n") { "• ${it.nameEn}" }
+    val serviceNamesEs = selectedWithQty.joinToString("\n") { (svc, count) ->
+        val p = if (count > 1) "(x$count) " else ""
+        "• $p${svc.nameEs}"
+    }
+    val serviceNamesEn = selectedWithQty.joinToString("\n") { (svc, count) ->
+        val p = if (count > 1) "(x$count) " else ""
+        "• $p${svc.nameEn}"
+    }
 
-    fun toggleServiceAndRefreshAi(serviceId: Int, add: Boolean) {
-        if (add) {
-            if (serviceId !in selectedIds) selectedIds.add(serviceId)
+    fun updateServiceQuantityAndRefreshAi(serviceId: Int, newCount: Int) {
+        if (newCount <= 0) {
+            selectedQuantities.remove(serviceId)
         } else {
-            selectedIds.remove(serviceId)
+            selectedQuantities[serviceId] = newCount.coerceAtMost(99)
         }
-        val updatedSelection = ServiceCatalog.all.filter { it.id in selectedIds }
+        val updatedSelection = ServiceCatalog.all.mapNotNull { svc ->
+            val c = selectedQuantities[svc.id] ?: 0
+            if (c > 0) svc to c else null
+        }
         if (updatedSelection.isNotEmpty()) {
             val (genEs, genEn) = buildSmartDescriptions(updatedSelection, "", "", notes)
             descEs = genEs
             descEn = genEn
+        } else {
+            descEs = ""
+            descEn = ""
         }
     }
 
@@ -2996,7 +3044,11 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(tr(lang, "Service Catalog (${selectedIds.size})", "Catálogo de servicios (${selectedIds.size})"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        tr(lang, "Service Catalog (${selectedQuantities.size})", "Catálogo de servicios (${selectedQuantities.size})"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                     TextButton(onClick = { showCatalogSheet = false }) { Text(tr(lang, "Done", "Listo")) }
                 }
                 OutlinedTextField(
@@ -3033,25 +3085,60 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
                             }
                         }
                         items(itemsInCat, key = { it.id }) { service ->
-                            val isChecked = service.id in selectedIds
+                            val currentCount = selectedQuantities[service.id] ?: 0
+                            val isChecked = currentCount > 0
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { toggleServiceAndRefreshAi(service.id, !isChecked) }
+                                    .clickable {
+                                        updateServiceQuantityAndRefreshAi(service.id, if (isChecked) 0 else 1)
+                                    }
                                     .padding(vertical = 6.dp, horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Checkbox(
                                     checked = isChecked,
-                                    onCheckedChange = { checked -> toggleServiceAndRefreshAi(service.id, checked) }
+                                    onCheckedChange = { checked ->
+                                        updateServiceQuantityAndRefreshAi(service.id, if (checked) 1 else 0)
+                                    }
                                 )
                                 Column(Modifier.weight(1f)) {
-                                    Text(if (lang == "es") service.nameEs else service.nameEn, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                    Text(
+                                        if (lang == "es") service.nameEs else service.nameEn,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                     Text(
                                         "${if (lang == "es") service.nameEn else service.nameEs} · ${service.hours}h · Mat: ${money.format(service.materials)}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                }
+                                if (isChecked) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        FilledTonalIconButton(
+                                            onClick = { updateServiceQuantityAndRefreshAi(service.id, currentCount - 1) },
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Remove, contentDescription = "Less", modifier = Modifier.size(16.dp))
+                                        }
+                                        Text(
+                                            text = "$currentCount",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.width(24.dp),
+                                            textAlign = TextAlign.Center
+                                        )
+                                        FilledTonalIconButton(
+                                            onClick = { updateServiceQuantityAndRefreshAi(service.id, currentCount + 1) },
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Add, contentDescription = "More", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -3121,23 +3208,86 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
             OutlinedButton(onClick = { showCatalogSheet = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.Search, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
+                val totalUnits = selectedWithQty.sumOf { it.second }
                 Text(
-                    if (selected.isEmpty()) tr(lang, "Browse & Add Services (36)", "Buscar y agregar servicios (36)")
-                    else tr(lang, "${selected.size} service(s) selected", "${selected.size} servicio(s) seleccionado(s)")
+                    if (selectedWithQty.isEmpty()) tr(lang, "Browse & Add Services (${ServiceCatalog.all.size})", "Buscar y agregar servicios (${ServiceCatalog.all.size})")
+                    else tr(lang, "${selectedWithQty.size} service(s) · $totalUnits unit(s)", "${selectedWithQty.size} servicio(s) · $totalUnits unidad(es)")
                 )
             }
 
-            if (selected.isNotEmpty()) {
+            if (selectedWithQty.isNotEmpty()) {
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(tr(lang, "Included Services", "Servicios incluidos"), style = MaterialTheme.typography.titleSmall)
-                        selected.forEach { service ->
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(if (lang == "es") service.nameEs else service.nameEn)
-                                    Text(if (lang == "es") service.nameEn else service.nameEs, style = MaterialTheme.typography.bodySmall)
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            tr(lang, "Included Services & Quantities", "Servicios incluidos y cantidades"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        selectedWithQty.forEach { (service, itemQty) ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                                    .padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f).padding(end = 6.dp)) {
+                                        Text(
+                                            text = if (lang == "es") service.nameEs else service.nameEn,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "${"%.2f".format(Locale.US, service.hours * itemQty)}h · Mat: ${money.format(service.materials * itemQty)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        FilledTonalIconButton(
+                                            onClick = { updateServiceQuantityAndRefreshAi(service.id, itemQty - 1) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
+                                        }
+                                        OutlinedTextField(
+                                            value = itemQty.toString(),
+                                            onValueChange = { raw ->
+                                                val parsed = raw.filter { it.isDigit() }.take(2).toIntOrNull()
+                                                if (parsed != null && parsed > 0) {
+                                                    updateServiceQuantityAndRefreshAi(service.id, parsed)
+                                                }
+                                            },
+                                            modifier = Modifier.width(54.dp),
+                                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center
+                                            ),
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            singleLine = true
+                                        )
+                                        FilledTonalIconButton(
+                                            onClick = { updateServiceQuantityAndRefreshAi(service.id, itemQty + 1) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
+                                        }
+                                        IconButton(
+                                            onClick = { updateServiceQuantityAndRefreshAi(service.id, 0) },
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
                                 }
-                                TextButton(onClick = { toggleServiceAndRefreshAi(service.id, false) }) { Text(tr(lang, "Remove", "Quitar")) }
                             }
                         }
                     }
@@ -3155,14 +3305,14 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
                             value = materialSearchQuery,
                             onValueChange = { materialSearchQuery = it },
                             label = { Text(tr(lang, "Check Home Depot Price", "Buscar precio en Home Depot")) },
-                            placeholder = { Text("breaker 20A GFCI / 12-2 Romex") },
+                            placeholder = { Text("breaker 20A GFCI / mini split disconnect") },
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
                         FilledTonalButton(
                             onClick = {
                                 val q = materialSearchQuery.ifBlank {
-                                    selected.firstOrNull()?.let { "${it.nameEn} ${it.nameEs}" } ?: ""
+                                    selectedWithQty.firstOrNull()?.first?.let { "${it.nameEn} ${it.nameEs}" } ?: ""
                                 }
                                 searchHomeDepotMaterial(context, q)
                             },
@@ -3220,7 +3370,7 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
                 )
                 FilledTonalButton(
                     onClick = {
-                        val (genEs, genEn) = buildSmartDescriptions(selected, descEs, descEn, notes)
+                        val (genEs, genEn) = buildSmartDescriptions(selectedWithQty, descEs, descEn, notes)
                         descEs = genEs
                         descEn = genEn
                         Toast.makeText(context, tr(lang, "Detailed scope generated", "Descripción detallada generada"), Toast.LENGTH_SHORT).show()
@@ -3243,7 +3393,7 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
                 },
                 trailingIcon = {
                     IconButton(onClick = {
-                        val (genEs, genEn) = buildSmartDescriptions(selected, descEs, descEn, notes)
+                        val (genEs, genEn) = buildSmartDescriptions(selectedWithQty, descEs, descEn, notes)
                         descEs = genEs
                         descEn = genEn
                     }) {
@@ -3330,15 +3480,29 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(qty, { qty = it }, label = { Text(tr(lang, "Quantity", "Cantidad")) }, modifier = Modifier.weight(1f), singleLine = true)
-                OutlinedTextField(extraMaterials, { extraMaterials = it }, label = { Text(tr(lang, "Extra Materials $", "Material extra $")) }, modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(
+                    value = qty,
+                    onValueChange = { qty = it },
+                    label = { Text(tr(lang, "Global Multiplier", "Multiplicador global")) },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = extraMaterials,
+                    onValueChange = { extraMaterials = it },
+                    label = { Text(tr(lang, "Extra Materials $", "Material extra $")) },
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
             }
 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(tr(lang, "Estimate Summary", "Resumen de cotización"), style = MaterialTheme.typography.titleMedium)
-                    Text("${tr(lang, "Estimated Hours", "Horas estimadas")}: ${"%.2f".format(Locale.US, laborHours * quantity)}")
-                    Text("${tr(lang, "Base + Extra Materials", "Materiales base + adicionales")}: ${money.format(materials * quantity)}")
+                    Text("${tr(lang, "Estimated Hours", "Horas estimadas")}: ${"%.2f".format(Locale.US, laborHours * globalMultiplier)}")
+                    Text("${tr(lang, "Base + Extra Materials", "Materiales base + adicionales")}: ${money.format(materials * globalMultiplier)}")
                     Text("TOTAL", style = MaterialTheme.typography.labelLarge)
                     Text(money.format(total), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Text(
@@ -3350,9 +3514,12 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
 
             Button(
                 onClick = {
-                    if (client.isNotBlank() && selected.isNotEmpty() && quantity > 0) {
-                        val names = selected.joinToString(" / ") { "${it.nameEn} | ${it.nameEs}" }
-                        val (autoEs, autoEn) = buildSmartDescriptions(selected, descEs, descEn, notes)
+                    if (client.isNotBlank() && selectedWithQty.isNotEmpty() && globalMultiplier > 0) {
+                        val names = selectedWithQty.joinToString(" / ") { (svc, count) ->
+                            val prefix = if (count > 1) "(x$count) " else ""
+                            "$prefix${svc.nameEn} | $prefix${svc.nameEs}"
+                        }
+                        val (autoEs, autoEn) = buildSmartDescriptions(selectedWithQty, descEs, descEn, notes)
                         val finalEs = descEs.ifBlank { autoEs.ifBlank { serviceNamesEs } }
                         val finalEn = descEn.ifBlank { autoEn.ifBlank { serviceNamesEn } }
                         onSave(
@@ -3365,17 +3532,17 @@ fun QuoteScreen(lang: String, clients: List<ClientEntity>, settings: EstimateSet
                                 descriptionEs = finalEs,
                                 descriptionEn = finalEn,
                                 observations = notes.trim(),
-                                quantity = quantity,
+                                quantity = globalMultiplier,
                                 total = total,
                                 status = "Pendiente",
                                 photoUris = attachedPhotos.joinToString("|")
                             )
                         )
-                        client = ""; clientPhone = ""; clientEmail = ""; clientAddress = ""; selectedIds.clear()
+                        client = ""; clientPhone = ""; clientEmail = ""; clientAddress = ""; selectedQuantities.clear()
                         descEs = ""; descEn = ""; notes = ""; qty = "1"; extraMaterials = "0"; attachedPhotos.clear()
                     }
                 },
-                enabled = client.isNotBlank() && selected.isNotEmpty() && quantity > 0,
+                enabled = client.isNotBlank() && selectedWithQty.isNotEmpty() && globalMultiplier > 0,
                 modifier = Modifier.fillMaxWidth()
             ) { Text(tr(lang, "Save Estimate", "Guardar cotización")) }
         }
@@ -3841,7 +4008,7 @@ fun SettingsScreen(
             }
             "v${pInfo.versionName} (Build $code)"
         } catch (ex: Exception) {
-            "v1.3.0"
+            "v1.4.0"
         }
     }
 
@@ -4123,9 +4290,9 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("• Status-bar safe layout, Invoices Tab & Locked Completed Jobs Stats", style = MaterialTheme.typography.bodySmall)
-                Text("• Live GPS Arrival Clock (ETA) SMS on En Route & Duration in Hours", style = MaterialTheme.typography.bodySmall)
-                Text("• Bilingual PDF export with digital signature & photo evidence", style = MaterialTheme.typography.bodySmall)
+                Text("• Per-Service Quantity Controls, 61 Services (incl. Mini-Splits) & Invoices Tab", style = MaterialTheme.typography.bodySmall)
+                Text("• Language-Matched PDF Export, Live GPS Arrival Clock & Duration in Hours", style = MaterialTheme.typography.bodySmall)
+                Text("• Status-bar safe layout & Locked Completed Jobs Statistics", style = MaterialTheme.typography.bodySmall)
             }
         }
     }
