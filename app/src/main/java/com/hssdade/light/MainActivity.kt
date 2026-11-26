@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -401,13 +403,17 @@ fun ApexBidLogo(size: Dp = 40.dp) {
     Box(
         modifier = Modifier
             .size(size)
-            .background(Color(0xFF0F4761), logoShape),
+            .clip(logoShape)
+            .background(Color(0xFF0F4761)),
         contentAlignment = Alignment.Center
     ) {
         Image(
             painter = painterResource(id = R.drawable.apexbid_icon),
             contentDescription = "ApexBid Logo",
-            modifier = Modifier.fillMaxSize()
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .scale(1.14f)
         )
     }
 }
