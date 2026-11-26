@@ -45,6 +45,20 @@ data class QuoteEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "appointments")
+data class AppointmentEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val clientName: String,
+    val clientPhone: String = "",
+    val clientAddress: String = "",
+    val workSummary: String,
+    val notes: String = "",
+    val scheduledAt: Long,
+    val durationMinutes: Int = 60,
+    val routeOrder: Int = 0,
+    val status: String = "Programada"
+)
+
 @Dao
 interface ClientDao {
     @Query("SELECT * FROM clients ORDER BY name ASC")
@@ -75,33 +89,77 @@ interface QuoteDao {
     suspend fun update(quote: QuoteEntity)
 }
 
-@Database(entities = [ClientEntity::class, QuoteEntity::class], version = 4, exportSchema = false)
+@Dao
+interface AppointmentDao {
+    @Query("SELECT * FROM appointments ORDER BY scheduledAt ASC, routeOrder ASC")
+    fun observeAll(): Flow<List<AppointmentEntity>>
+
+    @Query("SELECT * FROM appointments ORDER BY scheduledAt ASC, routeOrder ASC")
+    suspend fun getAllOnce(): List<AppointmentEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(appointment: AppointmentEntity): Long
+
+    @Update
+    suspend fun update(appointment: AppointmentEntity)
+
+    @Delete
+    suspend fun delete(appointment: AppointmentEntity)
+}
+
+@Database(
+    entities = [ClientEntity::class, QuoteEntity::class, AppointmentEntity::class],
+    version = 5,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun clientDao(): ClientDao
     abstract fun quoteDao(): QuoteDao
+    abstract fun appointmentDao(): AppointmentDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE quotes ADD COLUMN clientPhone TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE quotes ADD COLUMN clientEmail TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE quotes ADD COLUMN clientAddress TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE quotes ADD COLUMN status TEXT NOT NULL DEFAULT 'Pendiente'")
+                try { db.execSQL("ALTER TABLE quotes ADD COLUMN clientPhone TEXT NOT NULL DEFAULT ''") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE quotes ADD COLUMN clientEmail TEXT NOT NULL DEFAULT ''") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE quotes ADD COLUMN clientAddress TEXT NOT NULL DEFAULT ''") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE quotes ADD COLUMN status TEXT NOT NULL DEFAULT 'Pendiente'") } catch (_: Exception) {}
             }
         }
 
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE quotes ADD COLUMN signatureData TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE quotes ADD COLUMN signedAt INTEGER NOT NULL DEFAULT 0")
+                try { db.execSQL("ALTER TABLE quotes ADD COLUMN signatureData TEXT NOT NULL DEFAULT ''") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE quotes ADD COLUMN signedAt INTEGER NOT NULL DEFAULT 0") } catch (_: Exception) {}
             }
         }
 
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE quotes ADD COLUMN photoUris TEXT NOT NULL DEFAULT ''")
+                try { db.execSQL("ALTER TABLE quotes ADD COLUMN photoUris TEXT NOT NULL DEFAULT ''") } catch (_: Exception) {}
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `appointments` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `clientName` TEXT NOT NULL,
+                        `clientPhone` TEXT NOT NULL DEFAULT '',
+                        `clientAddress` TEXT NOT NULL DEFAULT '',
+                        `workSummary` TEXT NOT NULL,
+                        `notes` TEXT NOT NULL DEFAULT '',
+                        `scheduledAt` INTEGER NOT NULL,
+                        `durationMinutes` INTEGER NOT NULL DEFAULT 60,
+                        `routeOrder` INTEGER NOT NULL DEFAULT 0,
+                        `status` TEXT NOT NULL DEFAULT 'Programada'
+                    )
+                    """.trimIndent()
+                )
             }
         }
 
@@ -111,7 +169,8 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 "hssdade_light.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }
         }
