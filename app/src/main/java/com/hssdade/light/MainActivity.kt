@@ -1712,6 +1712,16 @@ fun NewAppointmentDialog(
         }
     }
 
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            contactPickerLauncher.launch(null)
+        } else {
+            Toast.makeText(context, "Activa el permiso de Contactos para importar remitentes", Toast.LENGTH_LONG).show()
+        }
+    }
+
     fun applyParsedText(textToParse: String) {
         if (textToParse.isBlank()) {
             Toast.makeText(context, "Pega primero el mensaje del cliente", Toast.LENGTH_SHORT).show()
@@ -1796,9 +1806,19 @@ fun NewAppointmentDialog(
                     }
                 }
 
-                // Botón directo a Contactos del Teléfono para completar remitente cuando el SMS solo trae la dirección
+                // Botón directo a Contactos del Teléfono con solicitud automática de permiso
                 OutlinedButton(
-                    onClick = { contactPickerLauncher.launch(null) },
+                    onClick = {
+                        val hasContactsPerm = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.READ_CONTACTS
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (hasContactsPerm) {
+                            contactPickerLauncher.launch(null)
+                        } else {
+                            contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Filled.ContactPhone, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -3146,7 +3166,7 @@ fun SettingsScreen(
             }
             "v${pInfo.versionName} (Build $code)"
         } catch (ex: Exception) {
-            "v1.0.1"
+            "v1.0.2"
         }
     }
 
