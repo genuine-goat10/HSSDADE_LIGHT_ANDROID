@@ -82,6 +82,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hssdade.light.data.*
+import com.hssdade.light.pdf.BusinessReportPdf
 import com.hssdade.light.pdf.QuotePdf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -645,8 +646,10 @@ fun ApexBidApp(
                         quotes = quotes,
                         invoicesOnly = false,
                         onEditQuote = { q ->
-                            editingQuote = q
-                            tab = 2
+                            if (q.status != "Facturada") {
+                                editingQuote = q
+                                tab = 2
+                            }
                         },
                         onUpdateQuote = { updated ->
                             scope.launch { db.quoteDao().update(updated) }
@@ -677,10 +680,7 @@ fun ApexBidApp(
                         quotes = quotes.filter { it.status == "Facturada" },
                         invoicesOnly = true,
                         allQuotesForConversion = quotes.filter { it.status != "Facturada" },
-                        onEditQuote = { q ->
-                            editingQuote = q
-                            tab = 2
-                        },
+                        onEditQuote = { },
                         onUpdateQuote = { updated ->
                             scope.launch { db.quoteDao().update(updated) }
                         },
@@ -732,7 +732,7 @@ fun ApexBidApp(
                             scope.launch { db.clientDao().delete(client) }
                         }
                     )
-                    6 -> BusinessOverviewScreen(lang, quotes, appointments, isTabletLandscape)
+                    6 -> BusinessOverviewScreen(lang, quotes, appointments, settings, isTabletLandscape)
                     7 -> SettingsScreen(
                         settings = settings,
                         onSave = { updated ->
@@ -1240,6 +1240,17 @@ private fun launchMultiStopGoogleMapsRoute(
     } catch (_: Exception) {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
+}
+
+private fun shareReportPdf(context: Context, uri: Uri, periodLabel: String, brandName: String, lang: String = "en") {
+    val brand = brandName.ifBlank { "ApexBid" }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/pdf"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, "${tr(lang, "Financial Report", "Informe Financiero")} ($periodLabel) - $brand")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, tr(lang, "Share / Print Report PDF", "Compartir / Imprimir Informe PDF")))
 }
 
 private fun sharePdfGeneral(context: Context, uri: Uri, quote: QuoteEntity, brandName: String, lang: String = "en") {
@@ -2533,13 +2544,67 @@ fun BusinessOverviewScreen(
     lang: String,
     quotes: List<QuoteEntity>,
     appointments: List<AppointmentEntity>,
+    settings: EstimateSettings,
     isTablet: Boolean
 ) {
+    val context = LocalContext.current
     val money = NumberFormat.getCurrencyInstance(Locale.US)
-    val totalInvoiced = quotes.filter { it.status == "Facturada" }.sumOf { it.total }
-    val totalApproved = quotes.filter { it.status == "Aprobada" }.sumOf { it.total }
-    val totalPending = quotes.filter { it.status == "Pendiente" }.sumOf { it.total }
-    val completedJobs = appointments.count { it.status == "Completada" }
+    val dateFmt = remember { SimpleDateFormat("MM/dd/yyyy", Locale.US) }
+
+    var selectedPeriod by remember { mutableStateOf(1) }
+
+    val periodRange = remember(selectedPeriod) {
+        val now = Calendar.getInstance()
+        val start = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            when (selectedPeriod) {
+                0 -> {
+                    firstDayOfWeek = Calendar.MONDAY
+                    set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+                }
+                1 -> set(Calendar.DAY_OF_MONTH, 1)
+                2 -> {
+                    set(Calendar.DAY_OF_MONTH, 1)
+                    add(Calendar.MONTH, -5)
+                }
+                else -> timeInMillis = 0L
+            }
+        }
+        start.timeInMillis to now.timeInMillis
+    }
+
+    val periodLabel = when (selectedPeriod) {
+        0 -> tr(lang, "This Week", "Esta Semana")
+        1 -> tr(lang, "This Month", "Este Mes")
+        2 -> tr(lang, "Last 6 Months", "Últimos 6 Meses")
+        else -> tr(lang, "All Time", "Todo el Historial")
+    }
+
+    val rangeSubtitle = remember(selectedPeriod, periodRange) {
+        if (selectedPeriod == 3) {
+            tr(lang, "Complete Historical Record", "Registro Histórico Completo")
+        } else {
+            "${dateFmt.format(Date(periodRange.first))} – ${dateFmt.format(Date(periodRange.second))}"
+        }
+    }
+
+    val filteredQuotes = remember(quotes, periodRange, selectedPeriod) {
+        if (selectedPeriod == 3) quotes
+        else quotes.filter { it.createdAt in periodRange.first..periodRange.second }
+    }
+
+    val filteredAppointments = remember(appointments, periodRange, selectedPeriod) {
+        if (selectedPeriod == 3) appointments
+        else appointments.filter { it.scheduledAt in periodRange.first..periodRange.second }
+    }
+
+    val totalInvoiced = filteredQuotes.filter { it.status == "Facturada" }.sumOf { it.total }
+    val totalApproved = filteredQuotes.filter { it.status == "Aprobada" }.sumOf { it.total }
+    val totalPending = filteredQuotes.filter { it.status == "Pendiente" }.sumOf { it.total }
+    val completedJobs = filteredAppointments.count { it.status == "Completada" }
 
     val monthlyData = remember(quotes) {
         val fmt = SimpleDateFormat("MMM", Locale.US)
@@ -2564,7 +2629,7 @@ fun BusinessOverviewScreen(
         result
     }
 
-    val categoryStats = remember(quotes, lang) {
+    val categoryStats = remember(filteredQuotes, lang) {
         val categories = listOf(
             "Receptáculos e interruptores" to tr(lang, "Outlets & Switches", "Receptáculos e interruptores"),
             "Iluminación y ventilación" to tr(lang, "Lighting & Fans", "Iluminación y ventilación"),
@@ -2573,7 +2638,7 @@ fun BusinessOverviewScreen(
         )
         categories.map { (catKey, displayCat) ->
             val servicesInCat = ServiceCatalog.all.filter { it.category == catKey }
-            val matchedTotal = quotes.filter { q ->
+            val matchedTotal = filteredQuotes.filter { q ->
                 servicesInCat.any { s -> q.serviceName.contains(s.nameEs, ignoreCase = true) || q.serviceName.contains(s.nameEn, ignoreCase = true) }
             }.sumOf { it.total }
             displayCat to matchedTotal
@@ -2612,7 +2677,7 @@ fun BusinessOverviewScreen(
                 Card(Modifier.weight(1f)) {
                     Column(Modifier.padding(14.dp)) {
                         Text(tr(lang, "Completed Jobs", "Citas Completadas"), style = MaterialTheme.typography.labelMedium)
-                        Text("$completedJobs / ${appointments.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("$completedJobs / ${filteredAppointments.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -2676,7 +2741,11 @@ fun BusinessOverviewScreen(
 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(tr(lang, "Revenue by Electrical Specialty", "Ingresos por Especialidad Eléctrica"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${tr(lang, "Revenue by Specialty", "Ingresos por Especialidad")} ($periodLabel)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                     val maxCat = (categoryStats.maxOfOrNull { it.second } ?: 1.0).coerceAtLeast(1.0)
                     categoryStats.forEach { (catName, amount) ->
                         val ratio = (amount / maxCat).toFloat().coerceIn(0f, 1f)
@@ -2699,8 +2768,67 @@ fun BusinessOverviewScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(tr(lang, "Business Overview", "Resumen Financiero del Negocio"), style = MaterialTheme.typography.titleLarge)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(tr(lang, "Business Overview", "Resumen Financiero"), style = MaterialTheme.typography.titleLarge)
+                Text(rangeSubtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Button(
+                onClick = {
+                    try {
+                        val generated = BusinessReportPdf.create(
+                            context = context,
+                            periodLabel = periodLabel,
+                            rangeSubtitle = rangeSubtitle,
+                            quotes = filteredQuotes,
+                            appointments = filteredAppointments,
+                            brandName = settings.brandName,
+                            companyLicense = settings.companyLicense,
+                            companyPhone = settings.companyPhone,
+                            languageCode = lang
+                        )
+                        Toast.makeText(context, "PDF: ${generated.fileName}", Toast.LENGTH_SHORT).show()
+                        if (generated.uri != null) {
+                            shareReportPdf(context, generated.uri, periodLabel, settings.brandName, lang)
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(tr(lang, "Export PDF", "Exportar Informe"), maxLines = 1)
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            val periods = listOf(
+                0 to tr(lang, "This Week", "Esta Semana"),
+                1 to tr(lang, "This Month", "Este Mes"),
+                2 to tr(lang, "Last 6 Months", "Últimos 6 Meses"),
+                3 to tr(lang, "All Time", "Todo")
+            )
+            periods.forEach { (idx, label) ->
+                FilterChip(
+                    selected = selectedPeriod == idx,
+                    onClick = { selectedPeriod = idx },
+                    label = { Text(label) }
+                )
+            }
+        }
+
         if (isTablet) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Box(Modifier.weight(1f)) { kpiGrid() }
@@ -2946,6 +3074,8 @@ fun QuoteScreen(
     var clientExpanded by remember { mutableStateOf(false) }
 
     val selectedQuantities = remember { mutableStateMapOf<Int, Int>() }
+    val selectedHours = remember { mutableStateMapOf<Int, Double>() }
+    val hourTextInputs = remember { mutableStateMapOf<Int, String>() }
 
     var showCatalogSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -2981,6 +3111,8 @@ fun QuoteScreen(
             servicesModifiedDuringEdit = false
 
             selectedQuantities.clear()
+            selectedHours.clear()
+            hourTextInputs.clear()
             editingQuote.serviceName.split(" / ").forEach { part ->
                 val qtyMatch = Regex("""^\(x(\d+)\)\s*(.+)$""").find(part.trim())
                 val parsedCount = qtyMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
@@ -2994,6 +3126,8 @@ fun QuoteScreen(
                 }
                 if (matchedSvc != null) {
                     selectedQuantities[matchedSvc.id] = parsedCount
+                    selectedHours[matchedSvc.id] = matchedSvc.hours
+                    hourTextInputs[matchedSvc.id] = matchedSvc.hours.toString()
                 }
             }
 
@@ -3007,6 +3141,8 @@ fun QuoteScreen(
             clientEmail = ""
             clientAddress = ""
             selectedQuantities.clear()
+            selectedHours.clear()
+            hourTextInputs.clear()
             descEs = ""
             descEn = ""
             notes = ""
@@ -3081,7 +3217,10 @@ fun QuoteScreen(
     val globalMultiplier = qty.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
     val additionalMaterials = extraMaterials.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
 
-    val laborHours = selectedWithQty.sumOf { (svc, count) -> svc.hours * count }
+    val laborHours = selectedWithQty.sumOf { (svc, count) ->
+        val unitHours = selectedHours[svc.id] ?: svc.hours
+        unitHours * count
+    }
     val materials = selectedWithQty.sumOf { (svc, count) -> svc.materials * count } + additionalMaterials
     val cost = (laborHours * settings.hourlyOperatingCost + materials) * globalMultiplier
     val margin = settings.marginPercent / 100.0
@@ -3112,8 +3251,15 @@ fun QuoteScreen(
         servicesModifiedDuringEdit = true
         if (newCount <= 0) {
             selectedQuantities.remove(serviceId)
+            selectedHours.remove(serviceId)
+            hourTextInputs.remove(serviceId)
         } else {
             selectedQuantities[serviceId] = newCount.coerceAtMost(99)
+            if (!selectedHours.containsKey(serviceId)) {
+                val defaultHrs = ServiceCatalog.all.find { it.id == serviceId }?.hours ?: 1.0
+                selectedHours[serviceId] = defaultHrs
+                hourTextInputs[serviceId] = defaultHrs.toString()
+            }
         }
         val updatedSelection = ServiceCatalog.all.mapNotNull { svc ->
             val c = selectedQuantities[svc.id] ?: 0
@@ -3349,17 +3495,19 @@ fun QuoteScreen(
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            tr(lang, "Included Services & Quantities", "Servicios incluidos y cantidades"),
+                            tr(lang, "Included Services, Quantities & Hours", "Servicios incluidos, cantidades y horas"),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         selectedWithQty.forEach { (service, itemQty) ->
+                            val unitHrs = selectedHours[service.id] ?: service.hours
+                            val hrsText = hourTextInputs[service.id] ?: unitHrs.toString()
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
                                     .padding(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Row(
                                     Modifier.fillMaxWidth(),
@@ -3373,20 +3521,33 @@ fun QuoteScreen(
                                             fontWeight = FontWeight.SemiBold
                                         )
                                         Text(
-                                            text = "${"%.2f".format(Locale.US, service.hours * itemQty)}h · Mat: ${money.format(service.materials * itemQty)}",
+                                            text = "Total: ${"%.2f".format(Locale.US, unitHrs * itemQty)}h · Mat: ${money.format(service.materials * itemQty)}",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.secondary
                                         )
                                     }
+                                    IconButton(
+                                        onClick = { updateServiceQuantityAndRefreshAi(service.id, 0) },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
+                                        Text(tr(lang, "Qty:", "Cant:"), style = MaterialTheme.typography.labelSmall)
                                         FilledTonalIconButton(
                                             onClick = { updateServiceQuantityAndRefreshAi(service.id, itemQty - 1) },
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier.size(30.dp)
                                         ) {
-                                            Icon(Icons.Filled.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
+                                            Icon(Icons.Filled.Remove, contentDescription = "Decrease", modifier = Modifier.size(15.dp))
                                         }
                                         OutlinedTextField(
                                             value = itemQty.toString(),
@@ -3396,8 +3557,8 @@ fun QuoteScreen(
                                                     updateServiceQuantityAndRefreshAi(service.id, parsed)
                                                 }
                                             },
-                                            modifier = Modifier.width(54.dp),
-                                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                            modifier = Modifier.width(50.dp),
+                                            textStyle = MaterialTheme.typography.bodySmall.copy(
                                                 fontWeight = FontWeight.Bold,
                                                 textAlign = TextAlign.Center
                                             ),
@@ -3406,16 +3567,36 @@ fun QuoteScreen(
                                         )
                                         FilledTonalIconButton(
                                             onClick = { updateServiceQuantityAndRefreshAi(service.id, itemQty + 1) },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(Icons.Filled.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
-                                        }
-                                        IconButton(
-                                            onClick = { updateServiceQuantityAndRefreshAi(service.id, 0) },
                                             modifier = Modifier.size(30.dp)
                                         ) {
-                                            Icon(Icons.Filled.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                                            Icon(Icons.Filled.Add, contentDescription = "Increase", modifier = Modifier.size(15.dp))
                                         }
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(tr(lang, "Hrs/unit:", "Hrs/ud:"), style = MaterialTheme.typography.labelSmall)
+                                        OutlinedTextField(
+                                            value = hrsText,
+                                            onValueChange = { raw ->
+                                                val filtered = raw.filter { it.isDigit() || it == '.' }.take(5)
+                                                hourTextInputs[service.id] = filtered
+                                                val parsedHrs = filtered.toDoubleOrNull()
+                                                if (parsedHrs != null && parsedHrs >= 0.0) {
+                                                    selectedHours[service.id] = parsedHrs
+                                                    servicesModifiedDuringEdit = true
+                                                }
+                                            },
+                                            modifier = Modifier.width(66.dp),
+                                            textStyle = MaterialTheme.typography.bodySmall.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center
+                                            ),
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                            singleLine = true
+                                        )
                                     }
                                 }
                             }
@@ -3772,6 +3953,32 @@ fun HistoryScreen(
     val dateFmt = remember { SimpleDateFormat("MM/dd/yyyy", Locale.US) }
     var signingQuote by remember { mutableStateOf<QuoteEntity?>(null) }
     var convertExpanded by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var statusFilter by remember { mutableStateOf("ALL") }
+
+    val displayedQuotes = remember(quotes, searchQuery, statusFilter, dateFmt, money) {
+        val qLower = searchQuery.trim().lowercase()
+        quotes.filter { item ->
+            val matchesStatus = if (invoicesOnly || statusFilter == "ALL") true else item.status == statusFilter
+            val matchesSearch = if (qLower.isEmpty()) true else {
+                val dateStr = dateFmt.format(Date(item.createdAt)).lowercase()
+                val amountStr = money.format(item.total).lowercase()
+                val rawAmount = "%.2f".format(Locale.US, item.total)
+                val idStr = "#${item.id.toString().padStart(4, '0')}"
+                item.clientName.lowercase().contains(qLower) ||
+                    item.clientPhone.lowercase().contains(qLower) ||
+                    item.clientEmail.lowercase().contains(qLower) ||
+                    item.clientAddress.lowercase().contains(qLower) ||
+                    item.serviceName.lowercase().contains(qLower) ||
+                    item.observations.lowercase().contains(qLower) ||
+                    dateStr.contains(qLower) ||
+                    amountStr.contains(qLower) ||
+                    rawAmount.contains(qLower) ||
+                    idStr.contains(qLower)
+            }
+            matchesStatus && matchesSearch
+        }
+    }
 
     if (signingQuote != null) {
         SignatureDialog(
@@ -3797,8 +4004,8 @@ fun HistoryScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                if (invoicesOnly) tr(lang, "Invoices (${quotes.size})", "Facturas (${quotes.size})")
-                else tr(lang, "Estimates & Quotes (${quotes.size})", "Historial de Cotizaciones (${quotes.size})"),
+                if (invoicesOnly) tr(lang, "Invoices (${displayedQuotes.size})", "Facturas (${displayedQuotes.size})")
+                else tr(lang, "Quotes & Estimates (${displayedQuotes.size})", "Cotizaciones (${displayedQuotes.size})"),
                 style = MaterialTheme.typography.titleLarge
             )
             if (invoicesOnly && allQuotesForConversion.isNotEmpty()) {
@@ -3818,7 +4025,7 @@ fun HistoryScreen(
                                 onClick = {
                                     onUpdateQuote(est.copy(status = "Facturada"))
                                     convertExpanded = false
-                                    Toast.makeText(context, tr(lang, "Converted to Invoice", "Convertida a Factura"), Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, tr(lang, "Converted to Invoice (Locked)", "Convertida a Factura (Bloqueada)"), Toast.LENGTH_SHORT).show()
                                 }
                             )
                         }
@@ -3827,8 +4034,55 @@ fun HistoryScreen(
             }
         }
 
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = {
+                Text(
+                    tr(
+                        lang,
+                        "Search client, phone, address, service, date or $...",
+                        "Buscar cliente, teléfono, dirección, servicio, fecha o $..."
+                    )
+                )
+            },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Filled.Clear, contentDescription = "Clear")
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        if (!invoicesOnly) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val filters = listOf(
+                    "ALL" to tr(lang, "All", "Todas"),
+                    "Pendiente" to tr(lang, "Pending", "Pendientes"),
+                    "Aprobada" to tr(lang, "Approved", "Aprobadas"),
+                    "Facturada" to tr(lang, "Invoiced", "Facturadas")
+                )
+                filters.forEach { (key, label) ->
+                    FilterChip(
+                        selected = statusFilter == key,
+                        onClick = { statusFilter = key },
+                        label = { Text(label) }
+                    )
+                }
+            }
+        }
+
         if (invoicesOnly) {
-            val totalBilled = quotes.sumOf { it.total }
+            val totalBilled = displayedQuotes.sumOf { it.total }
             Card(
                 Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
@@ -3846,16 +4100,26 @@ fun HistoryScreen(
             }
         }
 
-        if (quotes.isEmpty()) {
+        if (displayedQuotes.isEmpty()) {
             Text(
-                if (invoicesOnly) tr(lang, "No invoices yet. Convert an approved estimate or mark one as Invoiced.", "Todavía no hay facturas. Convierte una cotización existente arriba.")
+                if (searchQuery.isNotBlank()) tr(lang, "No matching records found.", "No se encontraron resultados con esa búsqueda.")
+                else if (invoicesOnly) tr(lang, "No invoices yet. Convert an approved estimate or mark one as Invoiced.", "Todavía no hay facturas. Convierte una cotización existente arriba.")
                 else tr(lang, "No saved estimates yet.", "Todavía no hay registros guardados.")
             )
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(quotes, key = { it.id }) { q ->
+                items(displayedQuotes, key = { it.id }) { q ->
                     val photoCount = q.photoUris.split("|").count { it.isNotBlank() }
-                    Card(Modifier.fillMaxWidth()) {
+                    val isLockedInvoice = q.status == "Facturada"
+
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        colors = if (isLockedInvoice) {
+                            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        } else {
+                            CardDefaults.cardColors()
+                        }
+                    ) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
@@ -3882,42 +4146,83 @@ fun HistoryScreen(
                                             Text("📷 $photoCount photo(s)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                                         }
                                     }
-                                    IconButton(
-                                        onClick = { onEditQuote(q) },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.Edit,
-                                            contentDescription = tr(lang, "Edit Quote", "Editar cotización"),
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                    if (!isLockedInvoice) {
+                                        IconButton(
+                                            onClick = { onEditQuote(q) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.Edit,
+                                                contentDescription = tr(lang, "Edit Quote", "Editar cotización"),
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                val statusItems = listOf(
-                                    "Pendiente" to tr(lang, "Pending", "Pendiente"),
-                                    "Aprobada" to tr(lang, "Approved", "Aprobada"),
-                                    "Facturada" to tr(lang, "Invoiced", "Facturada")
-                                )
-                                statusItems.forEach { (dbStatus, label) ->
-                                    FilterChip(
-                                        selected = q.status == dbStatus,
-                                        onClick = { onUpdateQuote(q.copy(status = dbStatus)) },
-                                        label = { Text(label) }
+                            if (isLockedInvoice) {
+                                Surface(
+                                    color = Color(0xFF2D8A78).copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            tr(lang, "Invoiced · Locked (Read-Only)", "Facturada · Bloqueada (Solo lectura)"),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                }
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    val statusItems = listOf(
+                                        "Pendiente" to tr(lang, "Pending", "Pendiente"),
+                                        "Aprobada" to tr(lang, "Approved", "Aprobada"),
+                                        "Facturada" to tr(lang, "Invoiced", "Facturada")
                                     )
+                                    statusItems.forEach { (dbStatus, label) ->
+                                        FilterChip(
+                                            selected = q.status == dbStatus,
+                                            onClick = {
+                                                onUpdateQuote(q.copy(status = dbStatus))
+                                                if (dbStatus == "Facturada") {
+                                                    Toast.makeText(
+                                                        context,
+                                                        tr(lang, "Marked as Invoiced and locked", "Marcada como Facturada y bloqueada"),
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            },
+                                            label = { Text(label) }
+                                        )
+                                    }
                                 }
                             }
 
                             Text(q.serviceName, style = MaterialTheme.typography.bodyMedium)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text(money.format(q.total), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                OutlinedButton(onClick = { signingQuote = q }) {
-                                    Icon(Icons.Filled.Draw, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(if (q.signatureData.isNotBlank()) tr(lang, "Signed ✓", "Firmada ✓") else tr(lang, "Sign", "Firmar"))
+                                if (!isLockedInvoice || q.signatureData.isBlank()) {
+                                    OutlinedButton(onClick = { signingQuote = q }) {
+                                        Icon(Icons.Filled.Draw, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(if (q.signatureData.isNotBlank()) tr(lang, "Signed ✓", "Firmada ✓") else tr(lang, "Sign", "Firmar"))
+                                    }
+                                } else {
+                                    Text(
+                                        tr(lang, "Signed ✓", "Firmada ✓"),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
                                 }
                             }
 
@@ -4207,7 +4512,7 @@ fun SettingsScreen(
             }
             "v${pInfo.versionName} (Build $code)"
         } catch (ex: Exception) {
-            "v1.5.0"
+            "v1.6.0"
         }
     }
 
@@ -4489,9 +4794,9 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("• Edit Saved Quotes/Invoices, Per-Service Quantities & 61 Services (incl. Mini-Splits)", style = MaterialTheme.typography.bodySmall)
-                Text("• Language-Matched PDF Export, Live GPS Arrival Clock & Duration in Hours", style = MaterialTheme.typography.bodySmall)
-                Text("• Status-bar safe layout & Locked Completed Jobs Statistics", style = MaterialTheme.typography.bodySmall)
+                Text("• Editable Per-Service Hours, Multi-Field Search & Locked Invoiced Records", style = MaterialTheme.typography.bodySmall)
+                Text("• Printable Business Financial Reports by Week, Month, 6 Months or All Time", style = MaterialTheme.typography.bodySmall)
+                Text("• Language-Matched PDF Export, Live GPS Arrival Clock & 61 Services", style = MaterialTheme.typography.bodySmall)
             }
         }
     }
