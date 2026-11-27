@@ -1,6 +1,8 @@
 package com.hssdade.light
 
 import android.Manifest
+import android.app.Activity
+import androidx.core.view.WindowCompat
 import android.annotation.SuppressLint
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
