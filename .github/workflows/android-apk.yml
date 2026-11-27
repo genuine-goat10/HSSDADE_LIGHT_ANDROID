@@ -24,19 +24,6 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Generate consistent signing keystore
-        run: |
-          keytool -genkeypair -v \
-            -keystore app/apexbid.jks \
-            -alias apexbid \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass ApexBid2026Key \
-            -keypass ApexBid2026Key \
-            -dname "CN=ApexBid, OU=Electrical, O=CityLightElectric, L=Hialeah, ST=FL, C=US" \
-            -startdate "2026/01/01 00:00:00"
-
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
