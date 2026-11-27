@@ -4733,7 +4733,9 @@ fun SettingsScreen(
         OutlinedTextField(minimum, { minimum = it }, label = { Text(tr(lang, "Minimum Visit Charge ($)", "Cargo mínimo por visita ($)")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
 
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier
+             .fillMaxWidth()
+             .padding(end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
