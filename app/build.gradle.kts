@@ -13,8 +13,27 @@ android {
         applicationId = "com.hssdade.light"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.7.0"
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1) + 7
+        versionName = "0.7.${System.getenv("GITHUB_RUN_NUMBER") ?: "1"}"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("apexbid.jks")
+            storePassword = "ApexBid2026Key"
+            keyAlias = "apexbid"
+            keyPassword = "ApexBid2026Key"
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("release")
+        }
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     buildFeatures {
