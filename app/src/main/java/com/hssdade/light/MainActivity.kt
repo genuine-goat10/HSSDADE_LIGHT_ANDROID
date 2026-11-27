@@ -447,7 +447,13 @@ fun ApexBidApp(
     var settings by remember { mutableStateOf(EstimateSettings.load(context)) }
     val lang = settings.languageCode
     val useDarkTheme = isDarkThemeActive(settings.themeMode)
-
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as Activity).window
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !useDarkTheme
+        }
+    }
     val colorScheme = if (useDarkTheme) {
         darkColorScheme(
             primary = Color(0xFF5BC0DE),
